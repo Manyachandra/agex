@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import axios from 'axios'
+import AgentAvatar from './AgentAvatar'
 
 const API = import.meta.env.VITE_API_URL
 
@@ -18,6 +19,7 @@ export default function Ticker({ agents: liveAgents }) {
     ...agents.map(a => ({
       type: 'agent',
       ticker: a.ticker,
+      avatarUrl: a.avatar_url,
       price: parseFloat(a.price).toFixed(4),
       change: ((parseFloat(a.price) - 1.0) / 1.0 * 100).toFixed(2),
       status: a.status
@@ -53,6 +55,7 @@ export default function Ticker({ agents: liveAgents }) {
           }}>
             {item.type === 'agent' ? (
               <>
+                <AgentAvatar ticker={item.ticker} avatarUrl={item.avatarUrl} size="xs" style={{ border: 'none' }} />
                 <span style={{ color: '#4a8fa8', fontWeight: 600 }}>{item.ticker}</span>
                 <span style={{ color: '#ffffff' }}>${item.price}</span>
                 <span style={{
@@ -61,7 +64,7 @@ export default function Ticker({ agents: liveAgents }) {
                 }}>
                   {parseFloat(item.change) >= 0 ? '▲' : '▼'} {Math.abs(item.change)}%
                 </span>
-                {item.status === 'BANKRUPT' && (
+                {item.status === 'bankrupt' && (
                   <span style={{
                     fontSize: '0.6rem',
                     background: '#f03358',

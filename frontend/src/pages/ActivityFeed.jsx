@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import axios from 'axios'
 import { Activity, Filter, Zap, ArrowLeftRight, Skull, Crown } from 'lucide-react'
+import AgentAvatar from '../components/AgentAvatar'
 
 const API = import.meta.env.VITE_API_URL
 const AGENT_COLORS = {

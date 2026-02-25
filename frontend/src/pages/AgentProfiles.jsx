@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import axios from 'axios'
 import { LineChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { TrendingUp, TrendingDown, Zap, ArrowLeftRight, Wallet, Target } from 'lucide-react'
+import AgentAvatar from '../components/AgentAvatar'
 
 const API = import.meta.env.VITE_API_URL
 const AGENT_COLORS = {
@@ -67,7 +68,7 @@ export default function AgentProfiles() {
             transition: 'all 0.2s'
           }}>
             {a.ticker}
-            {a.status === 'BANKRUPT' && ' 💀'}
+            {a.status === 'bankrupt' && ' 💀'}
           </button>
         ))}
       </div>
@@ -82,17 +83,7 @@ export default function AgentProfiles() {
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
               <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
-                <div style={{
-                  width: '72px', height: '72px', borderRadius: '16px',
-                  background: AGENT_COLORS[agent.ticker] + '15',
-                  border: `2px solid ${AGENT_COLORS[agent.ticker]}40`,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontFamily: "'Syne', sans-serif",
-                  fontSize: '1.4rem', fontWeight: 900,
-                  color: AGENT_COLORS[agent.ticker]
-                }}>
-                  {agent.ticker.slice(0, 2)}
-                </div>
+                <AgentAvatar ticker={agent.ticker} avatarUrl={agent.avatar_url} size="xl" />
                 <div>
                   <div style={{ fontFamily: "'Syne', sans-serif", fontSize: '1.6rem', fontWeight: 800, color: 'var(--text)' }}>
                     {agent.full_name}
@@ -117,7 +108,7 @@ export default function AgentProfiles() {
                 }}>
                   {parseFloat(agent.price) >= 1 ? '▲' : '▼'} {Math.abs((parseFloat(agent.price) - 1) * 100).toFixed(2)}% since launch
                 </div>
-                <span className={`badge ${agent.status === 'BANKRUPT' ? 'badge-red' : 'badge-green'}`} style={{ marginTop: '8px', display: 'inline-block' }}>
+                <span className={`badge ${agent.status === 'bankrupt' ? 'badge-red' : 'badge-green'}`} style={{ marginTop: '8px', display: 'inline-block' }}>
                   {agent.status}
                 </span>
               </div>

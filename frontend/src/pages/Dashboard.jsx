@@ -2,12 +2,22 @@ import { useEffect, useState } from 'react'
 import axios from 'axios'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts'
 import { TrendingUp, TrendingDown, DollarSign, ArrowLeftRight, Zap, Users, AlertTriangle, Crown } from 'lucide-react'
+import AgentAvatar from '../components/AgentAvatar'
 
 const API = import.meta.env.VITE_API_URL
 
 const AGENT_COLORS = {
   RAVI: '#00b87a', ZEUS: '#f5a623',
   NOVA: '#7c3aed', BRAHMA: '#2563eb', KIRA: '#f03358'
+}
+
+
+function agentColor(ticker) {
+  const presets = { RAVI: '#00b87a', ZEUS: '#f5a623', NOVA: '#7c3aed', BRAHMA: '#2563eb', KIRA: '#f03358' }
+  if (presets[ticker]) return presets[ticker]
+  let h = 0
+  for (let i = 0; i < ticker.length; i++) h = (h + ticker.charCodeAt(i) * 47) % 360
+  return `hsl(${h}, 60%, 50%)`
 }
 
 export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }) {
@@ -58,7 +68,7 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
 
   const sorted = [...agents].sort((a, b) => b.price - a.price)
   const leader = sorted[0]
-  const riskAgent = [...agents].filter(a => a.status === 'ACTIVE').sort((a, b) => a.wallet - b.wallet)[0]
+  const riskAgent = [...agents].filter(a => a.status === 'active').sort((a, b) => a.wallet - b.wallet)[0]
 
   return (
     <div className="fade-in">
@@ -96,8 +106,8 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
           },
           {
             label: 'Active Agents',
-            value: agents.filter(a => a.status === 'ACTIVE').length,
-            sub: `${agents.filter(a => a.status === 'BANKRUPT').length} bankrupt`,
+            value: agents.filter(a => a.status === 'active').length,
+            sub: `${agents.filter(a => a.status === 'bankrupt').length} bankrupt`,
             icon: Users,
             color: '#7c3aed',
             bg: '#f5f0ff'
@@ -156,10 +166,8 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
           </div>
         </div>
 
-        {/* Top 3 + Risk Alert */}
+        {/* Leader + Risk */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-
-          {/* Leader Card */}
           {leader && (
             <div className="card" style={{
               background: 'linear-gradient(135deg, #0d1117 0%, #1a2a1a 100%)',
@@ -200,12 +208,8 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
             </div>
           )}
 
-          {/* Risk Alert */}
           {riskAgent && parseFloat(riskAgent.wallet) < 3 && (
-            <div className="card" style={{
-              background: '#fff8f0',
-              border: '1px solid #ffd4a8'
-            }}>
+            <div className="card" style={{ background: '#fff8f0', border: '1px solid #ffd4a8' }}>
               <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
                 <AlertTriangle size={20} color="#f5a623" style={{ flexShrink: 0, marginTop: '2px' }} />
                 <div>
@@ -220,49 +224,125 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
               </div>
             </div>
           )}
-
-          {/* Quick Leaderboard */}
-          <div className="card" style={{ flex: 1 }}>
-            <div className="card-header">
-              <div className="card-title">Rankings</div>
-              <span className="badge badge-gray">TOP 5</span>
-            </div>
-            {sorted.map((agent, i) => (
-              <div key={agent.ticker} style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                padding: '8px 0',
-                borderBottom: i < sorted.length - 1 ? '1px solid var(--border)' : 'none'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span style={{
-                    fontSize: '0.7rem',
-                    color: i === 0 ? '#f5a623' : 'var(--text3)',
-                    fontWeight: i === 0 ? 700 : 400,
-                    width: '20px'
-                  }}>#{i + 1}</span>
-                  <div
-                    style={{
-                      width: '8px', height: '8px', borderRadius: '50%',
-                      background: AGENT_COLORS[agent.ticker]
-                    }}
-                  />
-                  <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text)' }}>{agent.ticker}</span>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: '0.78rem', fontWeight: 700, color: parseFloat(agent.price) >= 1 ? 'var(--green)' : 'var(--red)' }}>
-                    ${parseFloat(agent.price).toFixed(4)}
-                  </div>
-                  <div style={{ fontSize: '0.62rem', color: parseFloat(agent.price) >= 1 ? 'var(--green)' : 'var(--red)' }}>
-                    {parseFloat(agent.price) >= 1 ? '▲' : '▼'} {Math.abs((parseFloat(agent.price) - 1) * 100).toFixed(2)}%
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
         </div>
       </div>
+
+      {/* Top Gainers + Biggest Drops */}
+      {(() => {
+        const withPct = agents.map(a => ({ ...a, pct: (parseFloat(a.price || 1) - 1) * 100 }))
+        const gainers = [...withPct].filter(a => a.pct >= 0).sort((a, b) => b.pct - a.pct).slice(0, 5)
+        const drops = [...withPct].filter(a => a.pct < 0).sort((a, b) => a.pct - b.pct).slice(0, 5)
+
+        const renderRow = (a, i, isGainer) => {
+          const color = isGainer ? 'var(--green)' : 'var(--red)'
+          return (
+            <div key={a.ticker} style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: '7px 0', borderBottom: '1px solid var(--border)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: '0.68rem', color: 'var(--text3)', width: 18, textAlign: 'right' }}>#{i + 1}</span>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: AGENT_COLORS[a.ticker] || agentColor(a.ticker), flexShrink: 0 }} />
+                <span style={{ fontSize: '0.78rem', fontWeight: 600 }}>{a.ticker}</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ fontSize: '0.78rem', fontWeight: 700, color }}>${parseFloat(a.price).toFixed(4)}</span>
+                <span style={{ fontSize: '0.68rem', fontWeight: 600, color, minWidth: 62, textAlign: 'right' }}>
+                  {isGainer ? '▲' : '▼'} {Math.abs(a.pct).toFixed(2)}%
+                </span>
+              </div>
+            </div>
+          )
+        }
+
+        return (
+          <div className="grid-2" style={{ marginBottom: 20 }}>
+            <div className="card">
+              <div className="card-header">
+                <div className="card-title" style={{ color: 'var(--green)' }}>TOP GAINERS 🟢</div>
+                <span className="badge badge-green">TOP 5</span>
+              </div>
+              {gainers.length === 0 && <div style={{ padding: 16, textAlign: 'center', color: 'var(--text3)', fontSize: '0.72rem' }}>No gainers yet</div>}
+              {gainers.map((a, i) => renderRow(a, i, true))}
+            </div>
+            <div className="card">
+              <div className="card-header">
+                <div className="card-title" style={{ color: 'var(--red)' }}>BIGGEST DROPS 🔴</div>
+                <span className="badge badge-red">TOP 5</span>
+              </div>
+              {drops.length === 0 && <div style={{ padding: 16, textAlign: 'center', color: 'var(--text3)', fontSize: '0.72rem' }}>No drops yet</div>}
+              {drops.map((a, i) => renderRow(a, i, false))}
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* All Agents Table */}
+      {(() => {
+        const visible = agents.filter(a => ['active', 'dominant', 'bankrupt'].includes(a.status))
+        if (visible.length === 0) return null
+        return (
+          <div className="card" style={{ marginBottom: 20 }}>
+            <div className="card-header">
+              <div className="card-title">All Agents</div>
+              <span className="badge badge-green">{visible.length}</span>
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              <table className="data-table" style={{ width: '100%' }}>
+                <thead>
+                  <tr>
+                    <th>Ticker</th><th>Full Name</th><th>Style</th>
+                    <th style={{ textAlign: 'right' }}>Price</th>
+                    <th style={{ textAlign: 'right' }}>Change %</th>
+                    <th style={{ textAlign: 'right' }}>Wallet</th>
+                    <th>Creator</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visible.map(a => {
+                    const color = AGENT_COLORS[a.ticker] || agentColor(a.ticker)
+                    const price = parseFloat(a.price || 1)
+                    const pct = ((price - 1) / 1) * 100
+                    const up = pct >= 0
+                    const handle = (a.creator_twitter || '').replace(/^@/, '')
+                    return (
+                      <tr key={a.ticker}>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <AgentAvatar ticker={a.ticker} avatarUrl={a.avatar_url} size="sm" />
+                            <strong>${a.ticker}</strong>
+                          </div>
+                        </td>
+                        <td>{a.full_name}</td>
+                        <td style={{ fontSize: '0.68rem', color: 'var(--text2)' }}>{a.style}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 700, color: up ? 'var(--green)' : 'var(--red)' }}>
+                          ${price.toFixed(4)}
+                        </td>
+                        <td style={{ textAlign: 'right', fontWeight: 600, color: up ? 'var(--green)' : 'var(--red)' }}>
+                          {up ? '▲' : '▼'} {Math.abs(pct).toFixed(2)}%
+                        </td>
+                        <td style={{ textAlign: 'right', fontWeight: 600 }}>
+                          ${parseFloat(a.wallet || 0).toFixed(2)}
+                        </td>
+                        <td style={{ fontSize: '0.68rem' }}>
+                          {a.creator_name && <span>{a.creator_name}</span>}
+                          {a.creator_name && handle && <span> · </span>}
+                          {handle && (
+                            <a href={`https://x.com/${handle}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--blue)', textDecoration: 'none' }}>
+                              @{handle}
+                            </a>
+                          )}
+                          {!a.creator_name && !handle && '—'}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Activity Feed Preview */}
       <div className="card">
@@ -286,8 +366,8 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <div style={{
-                  background: AGENT_COLORS[item.agent_ticker] + '20',
-                  color: AGENT_COLORS[item.agent_ticker],
+                  background: (AGENT_COLORS[item.agent_ticker] || agentColor(item.agent_ticker || '')) + '20',
+                  color: AGENT_COLORS[item.agent_ticker] || agentColor(item.agent_ticker || ''),
                   padding: '3px 8px',
                   borderRadius: '4px',
                   fontSize: '0.65rem',
