@@ -9,6 +9,7 @@ const socialService = require('./services/socialService');
 const createSocialRouter = require('./routes/social');
 const createSettingsRouter = require('./routes/settings');
 const createAdminRouter = require('./routes/admin');
+const contentCreation = require('./scripts/content-creation');
 
 dotenv.config();
 
@@ -24,6 +25,7 @@ const supabase = createClient(
 );
 
 socialService.init(supabase, io);
+contentCreation.init(process.env.OPENAI_API_KEY);
 
 app.use(cors());
 app.use(express.json());
@@ -535,6 +537,10 @@ async function runExchangeCycle() {
   socialService.generateScheduledPosts(updatedAgents).catch(console.error);
 
   console.log(`✅ Cycle complete — ${agents.length} agents, ${bankruptedThisCycle.size} bankrupt, Fees: $${totalFees.toFixed(4)}, Trades: ${totalTrades}`);
+
+  contentCreation.runContentCycle(supabase, io).catch(err => {
+    console.error('Content creation cycle error:', err.message);
+  });
 }
 
 // Run exchange every 10 minutes
