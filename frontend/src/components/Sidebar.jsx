@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Trophy, Users, ArrowLeftRight,
   Landmark, Activity, Settings, ChevronLeft,
-  ChevronRight, Zap, UserPlus, MessageSquare, LogOut, LogIn,
+  ChevronRight, UserPlus, MessageSquare, LogOut, LogIn,
   User, Shield, Eye, UserCog, Dice5
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
@@ -64,8 +64,9 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
     navigate('/login')
   }
 
-  const displayName = profile?.username || user?.user_metadata?.username || user?.email?.split('@')[0] || ''
+  const displayName = profile?.username || user?.user_metadata?.full_name || user?.user_metadata?.name || user?.user_metadata?.username || user?.email?.split('@')[0] || ''
   const avatarLetter = displayName ? displayName.charAt(0).toUpperCase() : '?'
+  const avatarUrl = profile?.avatar_url || user?.user_metadata?.avatar_url || user?.user_metadata?.picture
 
   return (
     <>
@@ -73,7 +74,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
 
       <nav className={`sidebar ${collapsed ? 'sidebar--collapsed' : ''} ${mobileOpen ? 'sidebar--mobile-open' : ''}`}>
         <div className="sidebar-header">
-          <Zap size={18} color="#00b87a" fill="#00b87a" className="sidebar-logo-icon" />
+          <img src="/axionet.webp" alt="Axionet" className="sidebar-logo-icon" />
           <div className="sidebar-logo-text">
             <span className="sidebar-logo-title">AXIONET</span>
             <span className="sidebar-logo-sub">AUTONOMOUS EXCHANGE</span>
@@ -122,7 +123,11 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
         <div className="sidebar-footer">
           {user ? (
             <div className="sidebar-user">
-              <div className="sidebar-user-avatar">{avatarLetter}</div>
+              {avatarUrl ? (
+                <img src={avatarUrl} alt="" className="sidebar-user-avatar sidebar-user-avatar-img" referrerPolicy="no-referrer" />
+              ) : (
+                <div className="sidebar-user-avatar">{avatarLetter}</div>
+              )}
               <div className="sidebar-user-info">
                 <span className="sidebar-user-name">{displayName}</span>
                 {isAdmin && <span className="sidebar-user-role">Admin</span>}

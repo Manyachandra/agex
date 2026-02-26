@@ -37,7 +37,25 @@ export function AuthProvider({ children }) {
     }
     fetch(`${API}/api/user/profile/${user.id}`)
       .then(res => res.ok ? res.json() : null)
-      .then(data => setProfile(data ?? null))
+      .then(async (data) => {
+        if (data) {
+          setProfile(data)
+          return
+        }
+        // New Google (or OAuth) user — auto-create profile
+        const res = await fetch(`${API}/api/user/profile`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: user.id,
+            username: user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'User',
+            avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.picture || null,
+            role: 'user',
+          }),
+        })
+        const created = res.ok ? await res.json() : null
+        setProfile(created ?? null)
+      })
       .catch(() => setProfile(null))
   }, [user])
 
@@ -52,6 +70,16 @@ export function AuthProvider({ children }) {
     }
   }
 
+  const signInWithGoogle = async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      },
+    })
+    if (error) throw error
+  }
+
   const signOut = async () => {
     await supabase.auth.signOut()
     setUser(null)
@@ -60,7 +88,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, profile, session, loading, signOut, refreshProfile }}>
+    <AuthContext.Provider value={{ user, profile, session, loading, signOut, refreshProfile, signInWithGoogle }}>
       {children}
     </AuthContext.Provider>
   )

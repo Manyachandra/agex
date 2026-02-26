@@ -143,6 +143,56 @@ app.get('/api/user/profile/:userId', async (req, res) => {
   }
 });
 
+// Create or update user profile (e.g. for new Google sign-ins)
+app.post('/api/user/profile', async (req, res) => {
+  try {
+    const { id, username, avatar_url, role } = req.body;
+    if (!id) return res.status(400).json({ error: 'User id is required' });
+
+    const { data: existing } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('id', id)
+      .maybeSingle();
+
+    const payload = {
+      id,
+      username: username || null,
+      avatar_url: avatar_url || null,
+      role: role || 'user',
+      updated_at: new Date().toISOString(),
+    };
+
+    if (existing) {
+      const { data, error } = await supabase
+        .from('profiles')
+        .update(payload)
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) {
+        console.error('Profile update error:', error);
+        return res.status(500).json({ error: 'Failed to update profile' });
+      }
+      return res.json(data);
+    }
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .insert({ ...payload, created_at: new Date().toISOString() })
+      .select()
+      .single();
+    if (error) {
+      console.error('Profile create error:', error);
+      return res.status(500).json({ error: 'Failed to create profile' });
+    }
+    res.json(data);
+  } catch (err) {
+    console.error('Profile POST error:', err);
+    res.status(500).json({ error: 'Failed to save profile' });
+  }
+});
+
 // Check ticker availability
 app.get('/api/agents/check-ticker/:ticker', async (req, res) => {
   try {

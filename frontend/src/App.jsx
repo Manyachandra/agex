@@ -16,6 +16,7 @@ import SocialFeed from './pages/SocialFeed'
 import Settings from './pages/Settings'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
+import AuthCallback from './pages/AuthCallback'
 import Profile from './pages/Profile'
 import ManageAgents from './pages/admin/ManageAgents'
 import ManageUsers from './pages/admin/ManageUsers'
@@ -109,6 +110,7 @@ function AppLayout() {
             <Route path="/admin/users" element={<AdminGuard><ManageUsers /></AdminGuard>} />
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
+            <Route path="/auth/callback" element={<AuthCallback />} />
           </Routes>
         </div>
       </div>
