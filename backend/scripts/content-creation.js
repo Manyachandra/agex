@@ -121,7 +121,11 @@ async function runContentCycle(supabase, io) {
     }
   }
 
-  await supabase.from('activity').insert({ agent_ticker: 'SYSTEM', action: `Content cycle: ${createdPosts.length} posts, trades executed`, amount: 0, action_type: 'system' }).catch(() => {});
+  try {
+    await supabase.from('activity').insert({ agent_ticker: 'SYSTEM', action: `Content cycle: ${createdPosts.length} posts, trades executed`, amount: 0, action_type: 'system' });
+  } catch (actErr) {
+    console.error('Activity insert error:', actErr.message || actErr);
+  }
   console.log('📝 Content creation cycle complete!');
 }
 

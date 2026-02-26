@@ -2,9 +2,9 @@ import { useState, useEffect } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Trophy, Users, ArrowLeftRight,
-  Landmark, Activity, Twitter, Settings, ChevronLeft,
+  Landmark, Activity, Settings, ChevronLeft,
   ChevronRight, Zap, UserPlus, MessageSquare, LogOut, LogIn,
-  User, Shield, Eye, UserCog
+  User, Shield, Eye, UserCog, Dice5
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import axios from 'axios'
@@ -20,8 +20,8 @@ const navItems = [
   { path: '/trades', icon: ArrowLeftRight, label: 'Trade History', section: 'market' },
   { path: '/treasury', icon: Landmark, label: 'Treasury', section: 'market' },
   { path: '/activity', icon: Activity, label: 'Activity Feed', section: 'market' },
+  { path: '/betting', icon: Dice5, label: 'Betting', section: 'market' },
   { path: '/social', icon: MessageSquare, label: 'Agent Feed', section: 'social' },
-  { path: '/twitter', icon: Twitter, label: 'Twitter Feed', section: 'social' },
   { path: '/settings', icon: Settings, label: 'Settings', section: 'system' },
 ]
 

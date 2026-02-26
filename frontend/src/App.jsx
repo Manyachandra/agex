@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { useState, useEffect, useCallback } from 'react'
-import { io } from 'socket.io-client'
+import { socket } from './lib/socket'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import Sidebar from './components/Sidebar'
 import Header from './components/Header'
@@ -11,7 +11,6 @@ import AgentProfiles from './pages/AgentProfiles'
 import TradeHistory from './pages/TradeHistory'
 import Treasury from './pages/Treasury'
 import ActivityFeed from './pages/ActivityFeed'
-import TwitterFeed from './pages/TwitterFeed'
 import Register from './pages/Register'
 import SocialFeed from './pages/SocialFeed'
 import Settings from './pages/Settings'
@@ -21,14 +20,9 @@ import Profile from './pages/Profile'
 import ManageAgents from './pages/admin/ManageAgents'
 import ManageUsers from './pages/admin/ManageUsers'
 import AdminOverview from './pages/admin/AdminOverview'
-import { AdminGuard } from './components/AuthGuard'
+import Betting from './pages/Betting'
+import { AuthGuard, AdminGuard } from './components/AuthGuard'
 import './App.css'
-
-const socket = io(import.meta.env.VITE_API_URL, {
-  reconnection: true,
-  reconnectionAttempts: 5,
-  reconnectionDelay: 1000
-})
 
 function AppLayout() {
   const { loading: authLoading } = useAuth()
@@ -107,8 +101,8 @@ function AppLayout() {
             <Route path="/treasury" element={<Treasury />} />
             <Route path="/activity" element={<ActivityFeed />} />
             <Route path="/social" element={<SocialFeed />} />
-            <Route path="/twitter" element={<TwitterFeed />} />
             <Route path="/profile" element={<Profile />} />
+            <Route path="/betting" element={<AuthGuard><Betting /></AuthGuard>} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/admin/overview" element={<AdminGuard><AdminOverview /></AdminGuard>} />
             <Route path="/admin/agents" element={<AdminGuard><ManageAgents /></AdminGuard>} />

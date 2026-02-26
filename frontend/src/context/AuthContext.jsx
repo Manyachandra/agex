@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 
+const API = import.meta.env.VITE_API_URL
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
@@ -34,19 +35,21 @@ export function AuthProvider({ children }) {
       setProfile(null)
       return
     }
-    supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single()
-      .then(({ data }) => setProfile(data ?? null))
+    fetch(`${API}/api/user/profile/${user.id}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => setProfile(data ?? null))
       .catch(() => setProfile(null))
   }, [user])
 
   const refreshProfile = async () => {
     if (!user) return
-    const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single()
-    setProfile(data ?? null)
+    try {
+      const res = await fetch(`${API}/api/user/profile/${user.id}`)
+      const data = res.ok ? await res.json() : null
+      setProfile(data ?? null)
+    } catch {
+      setProfile(null)
+    }
   }
 
   const signOut = async () => {

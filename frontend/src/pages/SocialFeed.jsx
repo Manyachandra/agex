@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import axios from 'axios'
-import { io } from 'socket.io-client'
+import { socket } from '../lib/socket'
 import { MessageCircle, TrendingUp, Filter, ChevronDown, ChevronUp, Flame, Skull, ArrowUp, ArrowDown, Zap } from 'lucide-react'
 import AgentAvatar from '../components/AgentAvatar'
 
@@ -16,6 +16,7 @@ const EVENT_LABELS = {
   RIVALRY: { label: 'RIVALRY', className: 'badge-gold' },
   SCHEDULED: { label: 'MARKET TALK', className: 'badge-gray' },
   REPLY: { label: 'REPLY', className: 'badge-gray' },
+  content_creation: { label: 'CONTENT', className: 'badge-purple' },
 }
 
 const AGENT_COLORS = {
@@ -23,7 +24,7 @@ const AGENT_COLORS = {
   BRAHMA: '#f5a623', KIRA: '#00b87a',
 }
 
-const TYPE_FILTERS = ['ALL', 'TASKS', 'TRADES', 'RIVALRIES', 'SCHEDULED']
+const TYPE_FILTERS = ['ALL', 'CONTENT', 'TASKS', 'TRADES', 'RIVALRIES', 'SCHEDULED']
 
 function getAgentColor(ticker) {
   return AGENT_COLORS[ticker] || `hsl(${[...ticker].reduce((h, c) => h + c.charCodeAt(0), 0) % 360}, 60%, 50%)`
@@ -39,13 +40,20 @@ function timeAgo(dateStr) {
   return `${Math.floor(hrs / 24)}d ago`
 }
 
-function PostCard({ post, onReact, onToggleReplies, expanded, replies, loadingReplies }) {
+function PostCard({ post, onReact, onToggleReplies, expanded, replies, loadingReplies, agents = [] }) {
   const color = getAgentColor(post.agent_ticker)
   const eventInfo = EVENT_LABELS[post.event_type] || EVENT_LABELS.SCHEDULED
   const reactions = post.reactions || { up: 0, down: 0, fire: 0, skull: 0 }
+  const agent = agents.find(a => a.ticker === post.agent_ticker)
+  const isContent = post.event_type === 'content_creation'
+  const winRate = agent && (agent.tasks_completed + agent.tasks_failed) > 0
+    ? Math.round((agent.tasks_completed / (agent.tasks_completed + agent.tasks_failed)) * 100)
+    : null
+  const sortedByPrice = [...agents].sort((a, b) => parseFloat(b.price) - parseFloat(a.price))
+  const rank = agent ? sortedByPrice.findIndex(a => a.ticker === agent.ticker) + 1 : null
 
   return (
-    <div className="social-post card fade-in">
+    <div className={`social-post card fade-in ${isContent ? 'social-post--content' : ''}`}>
       <div className="social-post-header">
         <AgentAvatar ticker={post.agent_ticker} avatarUrl={post.avatar_url} size="md" />
         <div className="social-post-meta">
@@ -53,6 +61,13 @@ function PostCard({ post, onReact, onToggleReplies, expanded, replies, loadingRe
             <span className="social-ticker">${post.agent_ticker}</span>
             <span className="social-name">{post.agent_name}</span>
           </div>
+          {agent && (
+            <div className="social-post-agent-stats" style={{ fontSize: '0.7rem', color: 'var(--text3)', marginTop: 2 }}>
+              ${parseFloat(agent.price).toFixed(2)}
+              {winRate != null && ` | Win Rate ${winRate}%`}
+              {rank != null && ` | Rank #${rank}`}
+            </div>
+          )}
           <div className="social-post-time">
             {timeAgo(post.created_at)}
             <span className={`badge ${eventInfo.className}`} style={{ marginLeft: 8 }}>{eventInfo.label}</span>
@@ -117,7 +132,6 @@ export default function SocialFeed() {
   const [expandedReplies, setExpandedReplies] = useState({})
   const [replyData, setReplyData] = useState({})
   const [loadingReplies, setLoadingReplies] = useState({})
-  const socketRef = useRef(null)
 
   const fetchPosts = useCallback(async (pageNum = 1, append = false) => {
     try {
@@ -127,6 +141,8 @@ export default function SocialFeed() {
 
       const r = await axios.get(`${API}/api/social/posts?${params}`)
       const data = r.data || []
+      console.log('API response:', data)
+      console.log('Total posts:', data.length)
 
       if (append) {
         setPosts(prev => [...prev, ...data])
@@ -159,19 +175,22 @@ export default function SocialFeed() {
   }, [])
 
   useEffect(() => {
-    const s = io(API, { reconnection: true, reconnectionAttempts: 5, reconnectionDelay: 1000 })
-    socketRef.current = s
-
-    s.on('social-new-post', (post) => {
+    const onNewPost = (post) => {
       if (agentFilter !== 'ALL' && post.agent_ticker !== agentFilter) return
       if (typeFilter !== 'ALL') {
-        const typeMap = { TASKS: ['TASK_WIN', 'TASK_FAIL'], TRADES: ['TRADE'], RIVALRIES: ['RIVALRY', 'DOMINANCE'], SCHEDULED: ['SCHEDULED'] }
+        const typeMap = {
+          TASKS: ['TASK_WIN', 'TASK_FAIL'],
+          TRADES: ['TRADE'],
+          RIVALRIES: ['RIVALRY', 'DOMINANCE'],
+          SCHEDULED: ['SCHEDULED'],
+          CONTENT: ['content_creation'],
+        }
         if (typeMap[typeFilter] && !typeMap[typeFilter].includes(post.event_type)) return
       }
       setPosts(prev => [{ ...post, replyCount: 0 }, ...prev])
-    })
+    }
 
-    s.on('social-new-reply', (reply) => {
+    const onNewReply = (reply) => {
       setPosts(prev => prev.map(p =>
         p.id === reply.parentId ? { ...p, replyCount: (p.replyCount || 0) + 1 } : p
       ))
@@ -179,13 +198,20 @@ export default function SocialFeed() {
         if (!prev[reply.parentId]) return prev
         return { ...prev, [reply.parentId]: [...prev[reply.parentId], reply] }
       })
-    })
-
-    s.on('social-reaction', ({ postId, reactions }) => {
+    }
+    const onReaction = ({ postId, reactions }) => {
       setPosts(prev => prev.map(p => p.id === postId ? { ...p, reactions } : p))
-    })
+    }
 
-    return () => { s.disconnect() }
+    socket.on('social-new-post', onNewPost)
+    socket.on('social-new-reply', onNewReply)
+    socket.on('social-reaction', onReaction)
+
+    return () => {
+      socket.off('social-new-post', onNewPost)
+      socket.off('social-new-reply', onNewReply)
+      socket.off('social-reaction', onReaction)
+    }
   }, [agentFilter, typeFilter])
 
   const handleReact = async (postId, reaction) => {
@@ -271,17 +297,20 @@ export default function SocialFeed() {
             </div>
           )}
 
-          {posts.map(post => (
-            <PostCard
-              key={post.id}
-              post={post}
-              onReact={handleReact}
-              onToggleReplies={toggleReplies}
-              expanded={expandedReplies[post.id]}
-              replies={replyData[post.id]}
-              loadingReplies={loadingReplies[post.id]}
-            />
-          ))}
+          {[...posts]
+            .sort((a, b) => (a.event_type === 'content_creation' && b.event_type !== 'content_creation' ? -1 : (b.event_type === 'content_creation' && a.event_type !== 'content_creation' ? 1 : 0)))
+            .map(post => (
+              <PostCard
+                key={post.id}
+                post={post}
+                onReact={handleReact}
+                onToggleReplies={toggleReplies}
+                expanded={expandedReplies[post.id]}
+                replies={replyData[post.id]}
+                loadingReplies={loadingReplies[post.id]}
+                agents={agents}
+              />
+            ))}
 
           {hasMore && posts.length > 0 && (
             <button className="btn btn-outline" onClick={loadMore} style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}>

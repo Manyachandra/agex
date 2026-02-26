@@ -9,6 +9,7 @@ const socialService = require('./services/socialService');
 const createSocialRouter = require('./routes/social');
 const createSettingsRouter = require('./routes/settings');
 const createAdminRouter = require('./routes/admin');
+const { createBetsRouter, resolveBets } = require('./routes/bets');
 const contentCreation = require('./scripts/content-creation');
 
 dotenv.config();
@@ -32,6 +33,7 @@ app.use(express.json());
 app.use('/api/social', createSocialRouter(supabase, io));
 app.use('/api/settings', createSettingsRouter(supabase, io));
 app.use('/api/admin', createAdminRouter(supabase, io));
+app.use('/api/bets', createBetsRouter(supabase, io));
 
 // ── ROUTES ──
 
@@ -122,6 +124,22 @@ app.get('/api/tweets', async (req, res) => {
     res.json(data);
   } catch (err) {
     res.json([]);
+  }
+});
+
+// Get user profile
+app.get('/api/user/profile/:userId', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', req.params.userId)
+      .single();
+    if (error) return res.status(404).json({ error: 'Profile not found' });
+    res.json(data);
+  } catch (err) {
+    console.error('Profile fetch error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch profile' });
   }
 });
 
@@ -545,6 +563,11 @@ async function runExchangeCycle() {
 
 // Run exchange every 10 minutes
 cron.schedule('*/10 * * * *', runExchangeCycle);
+
+// Resolve expired bets every 10 minutes
+cron.schedule('*/10 * * * *', () => {
+  resolveBets(supabase, io).catch(err => console.error('Bet resolution error:', err.message));
+});
 
 // WebSocket connection
 io.on('connection', (socket) => {

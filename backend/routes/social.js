@@ -25,6 +25,7 @@ module.exports = function createSocialRouter(supabase, io) {
           TRADES: ['TRADE'],
           RIVALRIES: ['RIVALRY', 'DOMINANCE'],
           SCHEDULED: ['SCHEDULED'],
+          CONTENT: ['content_creation'],
         };
         const types = typeMap[req.query.type];
         if (types) query = query.in('event_type', types);
@@ -41,24 +42,34 @@ module.exports = function createSocialRouter(supabase, io) {
 
       const topLevel = (posts || []).filter(p => !p.reply_to);
 
+      const tickers = [...new Set(topLevel.map(p => p.agent_ticker).filter(Boolean))];
+      let agentAvatars = {};
+      if (tickers.length > 0) {
+        const { data: agents } = await supabase
+          .from('agents')
+          .select('ticker, avatar_url')
+          .in('ticker', tickers);
+        (agents || []).forEach(a => { agentAvatars[a.ticker] = a.avatar_url; });
+      }
+
       topLevel.forEach(p => {
-        if (p.reply_count !== undefined) {
-          p.replyCount = p.reply_count;
-        }
+        if (p.reply_count !== undefined) p.replyCount = p.reply_count;
+        if (agentAvatars[p.agent_ticker] !== undefined) p.avatar_url = agentAvatars[p.agent_ticker];
       });
 
       const postIds = topLevel.map(p => p.id);
-      if (postIds.length > 0 && topLevel[0]?.reply_count === undefined) {
+      if (postIds.length > 0) {
         const { data: replies } = await supabase
           .from('social_posts')
           .select('reply_to')
           .in('reply_to', postIds);
-
         const counts = {};
         (replies || []).forEach(r => {
           counts[r.reply_to] = (counts[r.reply_to] || 0) + 1;
         });
-        topLevel.forEach(p => { p.replyCount = counts[p.id] || 0; });
+        topLevel.forEach(p => {
+          p.replyCount = p.reply_count !== undefined ? p.reply_count : (counts[p.id] || 0);
+        });
       }
 
       res.json(topLevel);
