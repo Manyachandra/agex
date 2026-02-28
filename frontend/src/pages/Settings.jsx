@@ -365,7 +365,7 @@ export default function Settings() {
             {[
               { label: 'Backend', value: 'Node.js + Express' },
               { label: 'Database', value: 'Supabase (PostgreSQL)' },
-              { label: 'AI Engine', value: 'OpenAI GPT-4o' },
+              { label: 'AI Engine', value: 'OpenAI GPT-5.2' },
               { label: 'Frontend', value: 'React + Vite' },
               { label: 'Real-time', value: 'Socket.io' },
               { label: 'Exchange Status', value: '🟢 RUNNING' },

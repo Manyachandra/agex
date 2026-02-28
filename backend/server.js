@@ -540,6 +540,12 @@ app.post('/api/exchange/sell-shares', async (req, res) => {
       exchange_wallet: parseFloat(treasury.exchange_wallet) + fee
     }).eq('id', treasury.id)
 
+    // Selling pressure decreases asset price by 0.5% per share (mirrors buy pressure)
+    const priceDrop = 1 - (shares * 0.005);
+    const newAssetPrice = Math.max(0.01, parseFloat((currentPrice * priceDrop).toFixed(4)));
+    await supabase.from('agents').update({ price: newAssetPrice }).eq('ticker', asset);
+    await supabase.from('price_history').insert({ agent_ticker: asset, price: newAssetPrice });
+
     io.emit('exchange-update', { type: 'sell', seller, asset, shares, price: currentPrice, profit })
     res.json({ success: true, newWallet, profit, sharesOwned })
   } catch (err) {
@@ -917,6 +923,20 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
+// // WebSocket connection
+// io.on('connection', (socket) => {
+//   console.log('Client connected:', socket.id);
+//   socket.on('disconnect', () => console.log('Client disconnected:', socket.id));
+// });
+
+// const PORT = process.env.PORT || 5000;
+// // Exchange cycle is now managed by OpenClaw AI (Atlas)
+// // OpenClaw calls POST /api/exchange/* endpoints every 10 minutes
+// // All exchange logic and decisions are made by OpenClaw
+// server.listen(PORT, () => {
+//   console.log(`🚀 Axionet API running on port ${PORT}`);
+// });
+
 // WebSocket connection
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
@@ -929,4 +949,18 @@ const PORT = process.env.PORT || 5000;
 // All exchange logic and decisions are made by OpenClaw
 server.listen(PORT, () => {
   console.log(`🚀 Axionet API running on port ${PORT}`);
+
+  // ── Bet resolution scheduler ──────────────────────────────────────────────
+  // Runs every 5 minutes.
+  // Checks for expired bets, calculates real % price change,
+  // sends ETH payout (or partial refund) to user wallet automatically.
+  setInterval(async () => {
+    try {
+      await resolveBets(supabase, io);
+    } catch (err) {
+      console.error('resolveBets scheduler error:', err.message);
+    }
+  }, 5 * 60 * 1000);
+
+  console.log('🎲 Bet resolution scheduler started (runs every 5 min)');
 });
