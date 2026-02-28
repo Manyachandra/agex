@@ -1870,7 +1870,6 @@ body {
   gap: 12px; padding: 40px; color: var(--text3); text-align: center;
 }
 
-.betting-my-bets { }
 .betting-bets-list { display: flex; flex-direction: column; gap: 10px; }
 
 .betting-bet-card {
