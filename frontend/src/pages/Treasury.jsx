@@ -10,7 +10,7 @@ export default function Treasury() {
   const [trades, setTrades] = useState([])
   const [feeHistory, setFeeHistory] = useState([])
 
-  useEffect(() => {
+  const fetchTreasuryAndTrades = () => {
     Promise.all([
       axios.get(`${API}/api/treasury`).catch(() => ({ data: null })),
       axios.get(`${API}/api/trades?limit=100`).catch(() => ({ data: [] }))
@@ -31,6 +31,15 @@ export default function Treasury() {
       })
       setFeeHistory(cumulative)
     }).catch(() => {})
+  }
+
+  useEffect(() => {
+    fetchTreasuryAndTrades()
+  }, [])
+
+  useEffect(() => {
+    const interval = setInterval(fetchTreasuryAndTrades, 15000)
+    return () => clearInterval(interval)
   }, [])
 
   const totalVolume = trades.reduce((s, t) => s + parseFloat(t.total_cost), 0)
@@ -120,24 +129,32 @@ export default function Treasury() {
             </tr>
           </thead>
           <tbody>
-            {(() => {
-              let running = 0
-              return [...trades].reverse().slice(0, 20).map((trade) => {
-                running += parseFloat(trade.fee)
-                return (
-                  <tr key={trade.id}>
-                    <td style={{ fontSize: '0.7rem', color: 'var(--text3)' }}>
-                      {new Date(trade.created_at).toLocaleTimeString()}
-                    </td>
-                    <td style={{ fontWeight: 600, color: 'var(--text)' }}>{trade.buyer_ticker}</td>
-                    <td style={{ color: 'var(--text2)' }}>{trade.seller_ticker}</td>
-                    <td style={{ color: 'var(--blue)', fontWeight: 600 }}>${parseFloat(trade.total_cost).toFixed(2)}</td>
-                    <td style={{ color: 'var(--green)', fontWeight: 600 }}>${parseFloat(trade.fee).toFixed(4)}</td>
-                    <td style={{ color: 'var(--text)', fontWeight: 700 }}>${running.toFixed(4)}</td>
-                  </tr>
-                )
-              })
-            })()}
+            {trades.length === 0 ? (
+              <tr>
+                <td colSpan={6} style={{ textAlign: 'center', padding: '24px', color: 'var(--text3)', fontSize: '0.8rem' }}>
+                  No fee transactions yet
+                </td>
+              </tr>
+            ) : (
+              (() => {
+                let running = 0
+                return [...trades].reverse().slice(0, 20).map((trade) => {
+                  running += parseFloat(trade.fee)
+                  return (
+                    <tr key={trade.id}>
+                      <td style={{ fontSize: '0.7rem', color: 'var(--text3)' }}>
+                        {new Date(trade.created_at).toLocaleTimeString()}
+                      </td>
+                      <td style={{ fontWeight: 600, color: 'var(--text)' }}>{trade.buyer_ticker}</td>
+                      <td style={{ color: 'var(--text2)' }}>{trade.seller_ticker}</td>
+                      <td style={{ color: 'var(--blue)', fontWeight: 600 }}>${parseFloat(trade.total_cost).toFixed(2)}</td>
+                      <td style={{ color: 'var(--green)', fontWeight: 600 }}>${parseFloat(trade.fee).toFixed(4)}</td>
+                      <td style={{ color: 'var(--text)', fontWeight: 700 }}>${running.toFixed(4)}</td>
+                    </tr>
+                  )
+                })
+              })()
+            )}
           </tbody>
         </table>
       </div>

@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 import { Menu, Wifi, WifiOff, RefreshCw, Clock, DollarSign } from 'lucide-react'
+import axios from 'axios'
+
+const API = import.meta.env.VITE_API_URL
+const OPENCLAW_ACTIVE_THRESHOLD_MS = 15 * 60 * 1000 // 15 minutes
 
 const pageTitles = {
   '/': { title: 'Dashboard', subtitle: 'Live exchange overview' },
@@ -16,11 +20,30 @@ const pageTitles = {
 export default function Header({ connected, lastUpdate, treasury, onMobileOpen }) {
   const location = useLocation()
   const [time, setTime] = useState(new Date())
+  const [openClawActive, setOpenClawActive] = useState(false) // true = active (< 15 min), false = idle
   const page = pageTitles[location.pathname] || pageTitles['/']
 
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000)
     return () => clearInterval(t)
+  }, [])
+
+  useEffect(() => {
+    const checkOpenClaw = () => {
+      axios.get(`${API}/api/agents`).then((r) => {
+        const agents = r.data || []
+        const dates = agents.map((a) => a.last_cycle_at).filter(Boolean)
+        if (dates.length === 0) {
+          setOpenClawActive(false)
+          return
+        }
+        const latest = Math.max(...dates.map((d) => new Date(d.endsWith('Z') || d.includes('+') ? d : d + 'Z').getTime()))
+        setOpenClawActive(Date.now() - latest < OPENCLAW_ACTIVE_THRESHOLD_MS)
+      }).catch(() => setOpenClawActive(false))
+    }
+    checkOpenClaw()
+    const interval = setInterval(checkOpenClaw, 60000)
+    return () => clearInterval(interval)
   }, [])
 
   return (
@@ -35,20 +58,14 @@ export default function Header({ connected, lastUpdate, treasury, onMobileOpen }
         </div>
       </div>
       <div className="header-right">
+        <div className={`openclaw-indicator ${openClawActive ? 'openclaw-indicator--active' : 'openclaw-indicator--idle'}`}>
+          <span className={`openclaw-dot ${openClawActive ? 'openclaw-dot--active' : 'openclaw-dot--idle'}`} />
+          <span>{openClawActive ? '🦞 OpenClaw Active' : '🦞 OpenClaw Idle'}</span>
+        </div>
         {treasury && (
           <div className="header-pill header-pill--green">
             <DollarSign size={12} />
             <span>${parseFloat(treasury.total_fees).toFixed(2)} collected</span>
-          </div>
-        )}
-        <div className="header-meta">
-          <Clock size={12} />
-          <span>{time.toUTCString().slice(17, 25)} UTC</span>
-        </div>
-        {lastUpdate && (
-          <div className="header-meta header-meta--hide-mobile">
-            <RefreshCw size={12} />
-            <span>{Math.floor((new Date() - lastUpdate) / 1000)}s ago</span>
           </div>
         )}
         <div className={`header-status ${connected ? 'header-status--live' : 'header-status--offline'}`}>

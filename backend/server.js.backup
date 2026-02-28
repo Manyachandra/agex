@@ -32,25 +32,12 @@ app.use('/api/bets', createBetsRouter(supabase, io));
 // ── ROUTES ──
 
 // Get all agents
-let agentsCache = null, agentsCacheTime = 0;
-let treasuryCache = null, treasuryCacheTime = 0;
-let activityCache = null, activityCacheTime = 0;
-let statsCache = null, statsCacheTime = 0;
-let priceHistoryCache = {}, priceHistoryCacheTime = {};
-const CACHE_TTL = 15000;
-
 app.get('/api/agents', async (req, res) => {
-  const now = Date.now();
-  if (agentsCache && (now - agentsCacheTime) < CACHE_TTL) {
-    return res.json(agentsCache);
-  }
   const { data, error } = await supabase
     .from('agents')
     .select('*')
     .order('price', { ascending: false });
   if (error) return res.status(500).json({ error });
-  agentsCache = data;
-  agentsCacheTime = now;
   res.json(data);
 });
 
@@ -79,48 +66,39 @@ app.get('/api/trades', async (req, res) => {
 
 // Get activity
 app.get('/api/activity', async (req, res) => {
-  const limit = parseInt(req.query.limit) || 50;
-  const now = Date.now();
-  if (activityCache && (now - activityCacheTime) < CACHE_TTL) return res.json(activityCache.slice(0, limit));
+  const limit = req.query.limit || 50;
   const { data, error } = await supabase
-    .from('activity').select('*').order('created_at', { ascending: false }).limit(200);
+    .from('activity')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit);
   if (error) return res.status(500).json({ error });
-  activityCache = data;
-  activityCacheTime = Date.now();
-  res.json((data || []).slice(0, limit));
+  res.json(data);
 });
 
 // Get treasury
 app.get('/api/treasury', async (req, res) => {
-  const now = Date.now();
-  if (treasuryCache && (now - treasuryCacheTime) < CACHE_TTL) return res.json(treasuryCache);
-  const { data, error } = await supabase.from('treasury').select('*').single();
+  const { data, error } = await supabase
+    .from('treasury')
+    .select('*')
+    .single();
   if (error) return res.status(500).json({ error });
-  treasuryCache = data;
-  treasuryCacheTime = Date.now();
   res.json(data);
 });
 
 // Get price history
 app.get('/api/price-history/:ticker', async (req, res) => {
   try {
-    const ticker = req.params.ticker;
-    const now = Date.now();
-    if (priceHistoryCache[ticker] && (now - (priceHistoryCacheTime[ticker] || 0)) < CACHE_TTL) {
-      return res.json(priceHistoryCache[ticker]);
-    }
     const { data, error } = await supabase
       .from('price_history')
       .select('*')
-      .eq('agent_ticker', ticker)
+      .eq('agent_ticker', req.params.ticker)
       .order('recorded_at', { ascending: true })
       .limit(200);
     if (error) {
       console.error('Price history error for', req.params.ticker, ':', error.message);
       return res.json([]);
     }
-    priceHistoryCache[ticker] = data || [];
-    priceHistoryCacheTime[ticker] = Date.now();
     res.json(data || []);
   } catch (err) {
     console.error('Price history exception for', req.params.ticker, ':', err.message);
@@ -319,8 +297,6 @@ app.post('/api/agents/register', async (req, res) => {
 // Get market stats
 app.get('/api/stats', async (req, res) => {
   try {
-    const now = Date.now();
-    if (statsCache && (now - statsCacheTime) < CACHE_TTL) return res.json(statsCache);
     const { data: agents } = await supabase.from('agents').select('*');
     const { data: treasury } = await supabase.from('treasury').select('*').single();
     const { data: trades } = await supabase.from('trades').select('id');
@@ -340,19 +316,16 @@ app.get('/api/stats', async (req, res) => {
       .filter(a => a.status === 'active')
       .sort((a, b) => a.wallet - b.wallet)[0];
 
-      const result = {
-        avgPrice: avgPrice.toFixed(4),
-        topAgent: topAgent?.ticker,
-        riskAgent: riskAgent?.ticker,
-        totalAgents: agents.length,
-        activeAgents: agents.filter(a => a.status === 'active').length,
-        bankruptAgents: agents.filter(a => a.status === 'bankrupt').length,
-        treasury,
-        totalTrades: trades?.length || 0
-      };
-      statsCache = result;
-      statsCacheTime = Date.now();
-      res.json(result);
+    res.json({
+      avgPrice: avgPrice.toFixed(4),
+      topAgent: topAgent?.ticker,
+      riskAgent: riskAgent?.ticker,
+      totalAgents: agents.length,
+      activeAgents: agents.filter(a => a.status === 'active').length,
+      bankruptAgents: agents.filter(a => a.status === 'bankrupt').length,
+      treasury,
+      totalTrades: trades?.length || 0
+    });
   } catch (err) {
     res.json({
       avgPrice: '1.0000', topAgent: null, riskAgent: null,
@@ -371,8 +344,8 @@ app.post('/api/exchange/task-result', async (req, res) => {
     const { data: agent } = await supabase.from('agents').select('*').eq('ticker', ticker).single()
     if (!agent) return res.status(404).json({ error: 'Agent not found' })
 
-    const penalty = (!success && parseFloat(earned) < 0) ? parseFloat(earned) : 0;
-    const newWallet = Math.max(0, parseFloat(agent.wallet) + (success ? parseFloat(earned) : penalty));
+const penalty = (!success && parseFloat(earned) < 0) ? parseFloat(earned) : 0;
+const newWallet = Math.max(0, parseFloat(agent.wallet) + (success ? parseFloat(earned) : penalty));
     const newCompleted = agent.tasks_completed + (success ? 1 : 0)
     const newFailed = agent.tasks_failed + (success ? 0 : 1)
     const newEarned = parseFloat(agent.total_earned) + (success ? parseFloat(earned) : 0)
@@ -550,53 +523,34 @@ app.post('/api/exchange/sell-shares', async (req, res) => {
 // Price update
 app.post('/api/exchange/price-update', async (req, res) => {
   try {
-    const { ticker, reason } = req.body;
-    const { data: agent } = await supabase.from('agents').select('*').eq('ticker', ticker).single();
-    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    const { ticker, reason } = req.body
+    const { data: agent } = await supabase.from('agents').select('*').eq('ticker', ticker).single()
+    if (!agent) return res.status(404).json({ error: 'Agent not found' })
 
-    // Get last 10 activities for this agent to calculate RECENT performance
-    const { data: recentActivity } = await supabase
-      .from('activity')
-      .select('action_type, amount')
-      .eq('agent_ticker', ticker)
-      .order('created_at', { ascending: false })
-      .limit(10);
-
-    let momentum = 0;
-    (recentActivity || []).forEach(a => {
-      if (a.action_type === 'prediction_result' && a.amount > 0) momentum += 0.02;   // correct = +2%
-      if (a.action_type === 'prediction_result' && a.amount === 0) momentum -= 0.03; // wrong = -3%
-      if (a.action_type === 'content' && a.amount > 4) momentum += 0.01;             // only high quality content
-      if (a.action_type === 'content' && a.amount <= 2) momentum -= 0.01;            // bad content = down
-      if (a.action_type === 'trade' && a.amount > 5) momentum += 0.005;              // only profitable trades
-      if (a.action_type === 'trade' && a.amount < 0) momentum -= 0.01;               // losing trades = down
-    });
-    // Wallet health factor — rich agents are stable, poor agents drop
-    const walletFactor = agent.wallet > 100 ? 0.005 : agent.wallet > 50 ? 0 : agent.wallet < 10 ? -0.03 : -0.01;
-    // Random market noise (-3% to +3%)
-    const noise = (Math.random() - 0.5) * 0.06;
-
-    // Combine factors
-    const totalChange = momentum + walletFactor + noise;
-    const currentPrice = parseFloat(agent.price);
-    const newPrice = Math.max(0.01, parseFloat((currentPrice * (1 + totalChange)).toFixed(4)));
+    // Calculate price based on real win rate — ignore submitted price
+    const totalTasks = (agent.tasks_completed || 0) + (agent.tasks_failed || 0)
+    const winRate = totalTasks > 0 ? agent.tasks_completed / totalTasks : 0.5
+    const perfFactor = (winRate - 0.5) * 0.10
+    const noise = (Math.random() - 0.5) * 0.04
+    const currentPrice = parseFloat(agent.price)
+    const newPrice = Math.max(0.10, parseFloat((currentPrice * (1 + perfFactor + noise)).toFixed(4)))
 
     await supabase.from('agents').update({
       price: newPrice,
       updated_at: new Date()
-    }).eq('ticker', ticker);
+    }).eq('ticker', ticker)
 
     await supabase.from('price_history').insert({
       agent_ticker: ticker,
       price: newPrice
-    });
+    })
 
-    io.emit('exchange-update', { type: 'price', ticker, price: newPrice });
-    res.json({ success: true, newPrice });
+    io.emit('exchange-update', { type: 'price', ticker, price: newPrice })
+    res.json({ success: true, newPrice })
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.message })
   }
-});
+})
 
 // Bankruptcy
 app.post('/api/exchange/bankruptcy', async (req, res) => {
@@ -643,237 +597,12 @@ app.post('/api/exchange/social-post', async (req, res) => {
       reactions: { up: 0, down: 0, fire: 0, skull: 0 }
     }).select().single()
 
-    if (post.reply_to) {
-      io.emit('social-new-reply', { ...post, parentId: post.reply_to })
-    }
-    // invalidate posts cache
-    if (typeof global.invalidatePostsCache === 'function') global.invalidatePostsCache();
-
     io.emit('social-new-post', post)
     res.json({ success: true, post })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
 })
-
-// Store a prediction
-app.post('/api/exchange/prediction', async (req, res) => {
-  try {
-    const { ticker, prediction_text, target_ticker, predicted_direction, predicted_percentage } = req.body;
-
-    if (!ticker || !prediction_text || !target_ticker || !predicted_direction) {
-      return res.status(400).json({ error: 'ticker, prediction_text, target_ticker, and predicted_direction are required' });
-    }
-
-    const { data: agent } = await supabase.from('agents').select('cycle_count').eq('ticker', ticker).single();
-    if (!agent) return res.status(404).json({ error: 'Agent not found' });
-
-    const { data: targetAgent } = await supabase.from('agents').select('price').eq('ticker', target_ticker).single();
-    if (!targetAgent) return res.status(404).json({ error: 'Target agent not found' });
-
-    const cycleNow = agent.cycle_count || 0;
-
-    const { data: prediction, error } = await supabase.from('predictions').insert({
-      agent_ticker: ticker,
-      prediction_text,
-      target_ticker,
-      predicted_direction: predicted_direction.toLowerCase(),
-      predicted_percentage: predicted_percentage || 10,
-      target_price_at_prediction: parseFloat(targetAgent.price),
-      cycle_created: cycleNow,
-      cycle_to_evaluate: cycleNow + 1,
-      status: 'pending'
-    }).select().single();
-
-    if (error) return res.status(500).json({ error: error.message });
-
-    await supabase.from('activity').insert({
-      agent_ticker: ticker,
-      action: `🔮 Predicted ${target_ticker} will go ${predicted_direction} — "${prediction_text}"`,
-      amount: 0,
-      action_type: 'prediction'
-    });
-
-    io.emit('exchange-update', { type: 'prediction', ticker, target_ticker, predicted_direction });
-    res.json({ success: true, prediction });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Get pending predictions ready to evaluate
-app.get('/api/exchange/pending-predictions', async (req, res) => {
-  try {
-    const { data: predictions, error } = await supabase
-      .from('predictions')
-      .select('*')
-      .eq('status', 'pending')
-      .order('created_at', { ascending: true });
-
-    if (error) return res.status(500).json({ error: error.message });
-
-    const enriched = [];
-    for (const pred of (predictions || [])) {
-      const { data: targetAgent } = await supabase
-        .from('agents')
-        .select('price')
-        .eq('ticker', pred.target_ticker)
-        .single();
-
-      enriched.push({
-        ...pred,
-        target_current_price: targetAgent ? parseFloat(targetAgent.price) : null,
-        actual_change_pct: targetAgent
-          ? (((parseFloat(targetAgent.price) - parseFloat(pred.target_price_at_prediction)) / parseFloat(pred.target_price_at_prediction)) * 100).toFixed(2)
-          : null
-      });
-    }
-
-    res.json(enriched);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Evaluate a prediction (correct or wrong)
-app.post('/api/exchange/evaluate-prediction', async (req, res) => {
-  try {
-    const { prediction_id, was_correct } = req.body;
-
-    if (!prediction_id || was_correct === undefined) {
-      return res.status(400).json({ error: 'prediction_id and was_correct are required' });
-    }
-
-    const { data: pred } = await supabase
-      .from('predictions')
-      .select('*')
-      .eq('id', prediction_id)
-      .single();
-
-    if (!pred) return res.status(404).json({ error: 'Prediction not found' });
-    if (pred.status !== 'pending') return res.status(400).json({ error: 'Prediction already evaluated' });
-
-    // Backend calculates reward/penalty based on agent style
-    const { data: agent } = await supabase
-      .from('agents')
-      .select('*')
-      .eq('ticker', pred.agent_ticker)
-      .single();
-
-    if (!agent) return res.status(404).json({ error: 'Agent not found' });
-
-    const style = (agent.style || '').toLowerCase();
-    let reward = 1.0;
-    let penalty = 0.10;
-
-    if (style.includes('aggressive')) { reward = 3.0; penalty = 0.50; }
-    else if (style.includes('creative')) { reward = 2.0; penalty = 0.00; }
-    else if (style.includes('careful') || style.includes('analytical')) { reward = 1.5; penalty = 0.20; }
-    else if (style.includes('fast')) { reward = 1.0; penalty = 0.10; }
-    else if (style.includes('pure investor')) { reward = 0; penalty = 0; }
-
-    const actualReward = was_correct ? reward : 0;
-    const actualPenalty = was_correct ? 0 : penalty;
-
-    await supabase.from('predictions').update({
-      status: was_correct ? 'correct' : 'wrong',
-      was_correct,
-      reward: actualReward,
-      penalty: actualPenalty,
-      evaluated_at: new Date().toISOString()
-    }).eq('id', prediction_id);
-
-    if (was_correct) {
-      await supabase.from('agents').update({
-        wallet: parseFloat(agent.wallet) + actualReward,
-        tasks_completed: agent.tasks_completed + 1,
-        total_earned: parseFloat(agent.total_earned) + actualReward,
-        updated_at: new Date()
-      }).eq('ticker', pred.agent_ticker);
-
-      await supabase.from('activity').insert({
-        agent_ticker: pred.agent_ticker,
-        action: `✅ Prediction CORRECT! "${pred.prediction_text}" — earned $${actualReward.toFixed(2)}`,
-        amount: actualReward,
-        action_type: 'prediction_result'
-      });
-    } else {
-      const newWallet = Math.max(0, parseFloat(agent.wallet) - actualPenalty);
-      await supabase.from('agents').update({
-        wallet: newWallet,
-        tasks_failed: agent.tasks_failed + 1,
-        updated_at: new Date()
-      }).eq('ticker', pred.agent_ticker);
-
-      await supabase.from('activity').insert({
-        agent_ticker: pred.agent_ticker,
-        action: `❌ Prediction WRONG! "${pred.prediction_text}" — lost $${actualPenalty.toFixed(2)}`,
-        amount: actualPenalty,
-        action_type: 'prediction_result'
-      });
-    }
-
-    io.emit('exchange-update', { type: 'prediction_result', ticker: pred.agent_ticker, was_correct });
-    res.json({ success: true, was_correct, reward: actualReward, penalty: actualPenalty });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Content evaluation result (for creative agents like NOVA)
-app.post('/api/exchange/content-result', async (req, res) => {
-  try {
-    const { ticker, quality_score, earned, reason } = req.body;
-
-    if (!ticker || quality_score === undefined) {
-      return res.status(400).json({ error: 'ticker and quality_score are required' });
-    }
-
-    const { data: agent } = await supabase
-      .from('agents')
-      .select('*')
-      .eq('ticker', ticker)
-      .single();
-
-    if (!agent) return res.status(404).json({ error: 'Agent not found' });
-
-    const earnedAmt = parseFloat(earned || 0);
-    const success = quality_score >= 6;
-
-    const newWallet = parseFloat(agent.wallet) + earnedAmt;
-    const newCompleted = agent.tasks_completed + (success ? 1 : 0);
-    const newFailed = agent.tasks_failed + (success ? 0 : 1);
-    const newEarned = parseFloat(agent.total_earned) + earnedAmt;
-
-    await supabase.from('agents').update({
-      wallet: newWallet,
-      tasks_completed: newCompleted,
-      tasks_failed: newFailed,
-      total_earned: newEarned,
-      updated_at: new Date()
-    }).eq('ticker', ticker);
-
-    await supabase.from('activity').insert({
-      agent_ticker: ticker,
-      action: `🎨 Content scored ${quality_score}/10 — earned $${earnedAmt.toFixed(2)} — ${reason}`,
-      amount: earnedAmt,
-      action_type: 'content'
-    });
-
-    const { data: treas } = await supabase.from('treasury').select('*').single();
-    if (treas) {
-      await supabase.from('treasury').update({
-        total_tasks: (treas.total_tasks || 0) + 1,
-        updated_at: new Date()
-      }).eq('id', treas.id);
-    }
-
-    io.emit('exchange-update', { type: 'content', ticker, quality_score, earned: earnedAmt });
-    res.json({ success: true, newWallet, quality_score });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // Cycle complete — update treasury and broadcast
 app.post('/api/exchange/cycle-complete', async (req, res) => {
@@ -885,7 +614,7 @@ app.post('/api/exchange/cycle-complete', async (req, res) => {
     // Stamp last_cycle_at for active/dominant agents so frontend can show OpenClaw Active/Idle
     const activeTickers = (agents || []).filter(a => a.status === 'active' || a.status === 'dominant').map(a => a.ticker)
     if (activeTickers.length > 0) {
-      const { error: lcErr } = await supabase.from("agents").update({ last_cycle_at: now }).in("ticker", activeTickers); if (lcErr) console.error("last_cycle_at err:", lcErr.message); else console.log("✅ last_cycle_at updated")
+      const { error: lcErr } = await supabase.from("agents").update({ last_cycle_at: now }).in("ticker", activeTickers); if(lcErr) console.error("last_cycle_at err:", lcErr.message); else console.log("✅ last_cycle_at updated")
     }
     const { data: agentsFresh } = await supabase.from('agents').select('*').order('price', { ascending: false })
 

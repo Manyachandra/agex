@@ -3,10 +3,23 @@ const express = require('express');
 module.exports = function createSocialRouter(supabase, io) {
   const router = express.Router();
 
+  let postsCache = null;
+  let postsCacheTime = 0;
+  const POSTS_CACHE_TTL = 15000; // 15 seconds
+  global.invalidatePostsCache = () => { postsCache = null; };
+
   router.get('/posts', async (req, res) => {
     try {
       const page = parseInt(req.query.page) || 1;
-      const limit = 20;
+      const hasFilters = req.query.agent || req.query.type;
+      const now = Date.now();
+
+      // Serve from cache for unfiltered page 1 requests
+      if (!hasFilters && page === 1 && postsCache && (now - postsCacheTime) < POSTS_CACHE_TTL) {
+        return res.json(postsCache);
+      }
+
+      const limit = 50;
       const offset = (page - 1) * limit;
 
       let query = supabase
@@ -43,33 +56,35 @@ module.exports = function createSocialRouter(supabase, io) {
       const topLevel = (posts || []).filter(p => !p.reply_to);
 
       const tickers = [...new Set(topLevel.map(p => p.agent_ticker).filter(Boolean))];
-      let agentAvatars = {};
-      if (tickers.length > 0) {
-        const { data: agents } = await supabase
-          .from('agents')
-          .select('ticker, avatar_url')
-          .in('ticker', tickers);
-        (agents || []).forEach(a => { agentAvatars[a.ticker] = a.avatar_url; });
-      }
+      const postIds = topLevel.map(p => p.id);
 
-      topLevel.forEach(p => {
-        if (p.reply_count !== undefined) p.replyCount = p.reply_count;
-        if (agentAvatars[p.agent_ticker] !== undefined) p.avatar_url = agentAvatars[p.agent_ticker];
+      // Run avatar and reply count queries in parallel
+      const [agentsRes, repliesRes] = await Promise.all([
+        tickers.length > 0
+          ? supabase.from('agents').select('ticker, avatar_url').in('ticker', tickers)
+          : Promise.resolve({ data: [] }),
+        postIds.length > 0
+          ? supabase.from('social_posts').select('reply_to').in('reply_to', postIds)
+          : Promise.resolve({ data: [] })
+      ]);
+
+      const agentAvatars = {};
+      (agentsRes.data || []).forEach(a => { agentAvatars[a.ticker] = a.avatar_url; });
+
+      const counts = {};
+      (repliesRes.data || []).forEach(r => {
+        counts[r.reply_to] = (counts[r.reply_to] || 0) + 1;
       });
 
-      const postIds = topLevel.map(p => p.id);
-      if (postIds.length > 0) {
-        const { data: replies } = await supabase
-          .from('social_posts')
-          .select('reply_to')
-          .in('reply_to', postIds);
-        const counts = {};
-        (replies || []).forEach(r => {
-          counts[r.reply_to] = (counts[r.reply_to] || 0) + 1;
-        });
-        topLevel.forEach(p => {
-          p.replyCount = p.reply_count !== undefined ? p.reply_count : (counts[p.id] || 0);
-        });
+      topLevel.forEach(p => {
+        if (agentAvatars[p.agent_ticker] !== undefined) p.avatar_url = agentAvatars[p.agent_ticker];
+        p.replyCount = counts[p.id] || 0;
+      });
+
+      // Cache unfiltered page 1 results
+      if (!hasFilters && page === 1) {
+        postsCache = topLevel;
+        postsCacheTime = Date.now();
       }
 
       res.json(topLevel);
@@ -87,7 +102,24 @@ module.exports = function createSocialRouter(supabase, io) {
         .eq('reply_to', req.params.id)
         .order('created_at', { ascending: true });
       if (error) return res.json([]);
-      res.json(data || []);
+
+      const replies = data || [];
+
+      // Enrich with avatar_url from agents table
+      const tickers = [...new Set(replies.map(r => r.agent_ticker).filter(Boolean))];
+      if (tickers.length > 0) {
+        const { data: agents } = await supabase
+          .from('agents')
+          .select('ticker, avatar_url')
+          .in('ticker', tickers);
+        const avatarMap = {};
+        (agents || []).forEach(a => { avatarMap[a.ticker] = a.avatar_url; });
+        replies.forEach(r => {
+          if (avatarMap[r.agent_ticker] !== undefined) r.avatar_url = avatarMap[r.agent_ticker];
+        });
+      }
+
+      res.json(replies);
     } catch (err) {
       res.json([]);
     }
@@ -95,7 +127,7 @@ module.exports = function createSocialRouter(supabase, io) {
 
   router.post('/posts/:id/react', async (req, res) => {
     try {
-      const { reaction } = req.body;
+      const { reaction, ticker } = req.body;
       if (!['up', 'down', 'fire', 'skull'].includes(reaction)) {
         return res.status(400).json({ error: 'Invalid reaction' });
       }
@@ -108,8 +140,17 @@ module.exports = function createSocialRouter(supabase, io) {
 
       if (!post) return res.status(404).json({ error: 'Post not found' });
 
-      const reactions = post.reactions || { up: 0, down: 0, fire: 0, skull: 0 };
-      reactions[reaction] = (reactions[reaction] || 0) + 1;
+      const reactions = { up: {}, down: {}, fire: {}, skull: {} };
+Object.keys(reactions).forEach(k => {
+  const v = post.reactions?.[k];
+  if (v && typeof v === 'object' && !Array.isArray(v)) reactions[k] = v;
+});
+const name = ticker || 'unknown';
+if (reactions[reaction][name]) {
+  delete reactions[reaction][name];
+} else {
+  reactions[reaction][name] = true;
+}
 
       const { data: updated, error } = await supabase
         .from('social_posts')
@@ -150,7 +191,8 @@ module.exports = function createSocialRouter(supabase, io) {
           eventCounts[p.event_type] = (eventCounts[p.event_type] || 0) + 1;
         }
         if (p.reactions) {
-          totalReactions += Object.values(p.reactions).reduce((a, b) => a + b, 0);
+          totalReactions += Object.values(p.reactions).reduce((sum, v) => 
+            sum + (typeof v === 'object' ? Object.keys(v).length : (v || 0)), 0);
         }
       });
 

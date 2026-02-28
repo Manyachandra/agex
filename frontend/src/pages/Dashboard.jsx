@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import axios from 'axios'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts'
-import { TrendingUp, TrendingDown, DollarSign, ArrowLeftRight, Zap, Users, AlertTriangle, Crown } from 'lucide-react'
+import { TrendingUp, TrendingDown, DollarSign, ArrowLeftRight, Zap, Users, AlertTriangle, Crown, X } from 'lucide-react'
 import AgentAvatar from '../components/AgentAvatar'
 
 const API = import.meta.env.VITE_API_URL
@@ -26,39 +26,48 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
   const [activity, setActivity] = useState([])
   const [stats, setStats] = useState(null)
   const [priceHistory, setPriceHistory] = useState([])
+  const [holdingsModalAgent, setHoldingsModalAgent] = useState(null)
+
+  const fetchAll = async () => {
+    try {
+      const [ag, tr, ac, st] = await Promise.all([
+        axios.get(`${API}/api/agents`).catch(() => ({ data: [] })),
+        axios.get(`${API}/api/treasury`).catch(() => ({ data: null })),
+        axios.get(`${API}/api/activity?limit=8`).catch(() => ({ data: [] })),
+        axios.get(`${API}/api/stats`).catch(() => ({ data: null }))
+      ])
+      setAgents(ag.data || [])
+      setTreasury(tr.data)
+      setActivity(ac.data || [])
+      setStats(st.data)
+
+      if (ag.data?.length) {
+        const histories = await Promise.all(
+          ag.data.map(a => axios.get(`${API}/api/price-history/${a.ticker}`).catch(() => ({ data: [] })))
+        )
+        const merged = {}
+        histories.forEach((h, i) => {
+          (h.data || []).forEach((point, j) => {
+            if (!merged[j]) merged[j] = { cycle: j + 1 }
+            merged[j][ag.data[i].ticker] = parseFloat(point.price)
+          })
+        })
+        setPriceHistory(Object.values(merged))
+      }
+    } catch (err) {
+      console.error('Dashboard fetch error:', err)
+    }
+  }
 
   useEffect(() => {
-    const fetchAll = async () => {
-      try {
-        const [ag, tr, ac, st] = await Promise.all([
-          axios.get(`${API}/api/agents`).catch(() => ({ data: [] })),
-          axios.get(`${API}/api/treasury`).catch(() => ({ data: null })),
-          axios.get(`${API}/api/activity?limit=8`).catch(() => ({ data: [] })),
-          axios.get(`${API}/api/stats`).catch(() => ({ data: null }))
-        ])
-        setAgents(ag.data || [])
-        setTreasury(tr.data)
-        setActivity(ac.data || [])
-        setStats(st.data)
-
-        if (ag.data?.length) {
-          const histories = await Promise.all(
-            ag.data.map(a => axios.get(`${API}/api/price-history/${a.ticker}`).catch(() => ({ data: [] })))
-          )
-          const merged = {}
-          histories.forEach((h, i) => {
-            (h.data || []).forEach((point, j) => {
-              if (!merged[j]) merged[j] = { cycle: j + 1 }
-              merged[j][ag.data[i].ticker] = parseFloat(point.price)
-            })
-          })
-          setPriceHistory(Object.values(merged))
-        }
-      } catch (err) {
-        console.error('Dashboard fetch error:', err)
-      }
-    }
     fetchAll()
+  }, [])
+
+  useEffect(() => {
+    const activityInterval = setInterval(() => {
+      axios.get(`${API}/api/activity?limit=8`).then(r => setActivity(r.data || [])).catch(() => {})
+    }, 15000)
+    return () => clearInterval(activityInterval)
   }, [])
 
   useEffect(() => {
@@ -295,6 +304,7 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
                     <th style={{ textAlign: 'right' }}>Price</th>
                     <th style={{ textAlign: 'right' }}>Change %</th>
                     <th style={{ textAlign: 'right' }}>Wallet</th>
+                    <th>Holdings</th>
                     <th>Creator</th>
                   </tr>
                 </thead>
@@ -305,6 +315,7 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
                     const pct = ((price - 1) / 1) * 100
                     const up = pct >= 0
                     const handle = (a.creator_twitter || '').replace(/^@/, '')
+                    const hasHoldings = a.shares_owned && typeof a.shares_owned === 'object' && Object.keys(a.shares_owned).length > 0
                     return (
                       <tr key={a.ticker}>
                         <td>
@@ -324,15 +335,30 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
                         <td style={{ textAlign: 'right', fontWeight: 600 }}>
                           ${parseFloat(a.wallet || 0).toFixed(2)}
                         </td>
+                        <td>
+                          {hasHoldings ? (
+                            <button
+                              type="button"
+                              onClick={() => setHoldingsModalAgent(a)}
+                              className="badge badge-green"
+                              style={{ cursor: 'pointer', border: 'none', font: 'inherit' }}
+                            >
+                              See
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled
+                              className="badge badge-red"
+                              style={{ cursor: 'not-allowed', border: 'none', font: 'inherit', opacity: 0.6 }}
+                            >
+                              No
+                            </button>
+                          )}
+                        </td>
                         <td style={{ fontSize: '0.68rem' }}>
                           {a.creator_name && <span>{a.creator_name}</span>}
-                          {a.creator_name && handle && <span> · </span>}
-                          {handle && (
-                            <a href={`https://x.com/${handle}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--blue)', textDecoration: 'none' }}>
-                              @{handle}
-                            </a>
-                          )}
-                          {!a.creator_name && !handle && '—'}
+                          {!a.creator_name && !handle && <span style={{ color: 'var(--text3)' }}>Anonymous</span>}
                         </td>
                       </tr>
                     )
@@ -379,19 +405,90 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
                 <span style={{ fontSize: '0.75rem', color: 'var(--text2)' }}>{item.action}</span>
               </div>
               <div style={{ display: 'flex', align: 'center', gap: '12px' }}>
-                {parseFloat(item.amount) > 0 && (
+                {parseFloat(item.amount) > 0 ? (
                   <span style={{ fontSize: '0.75rem', color: 'var(--green)', fontWeight: 600 }}>
                     +${parseFloat(item.amount).toFixed(2)}
                   </span>
+                ) : (
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text3)', fontWeight: 500 }}>
+                    $0.00
+                  </span>
                 )}
                 <span style={{ fontSize: '0.65rem', color: 'var(--text3)' }}>
-                  {new Date(item.created_at).toLocaleTimeString()}
+                {new Date(item.created_at.endsWith('Z') || item.created_at.includes('+') ? item.created_at : item.created_at + 'Z').toLocaleTimeString()}
                 </span>
               </div>
             </div>
           ))}
         </div>
       </div>
+
+      {holdingsModalAgent && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Holdings details"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+          onClick={() => setHoldingsModalAgent(null)}
+        >
+          <div
+            style={{
+              background: 'var(--bg2)',
+              border: '1px solid var(--border)',
+              borderRadius: '12px',
+              padding: '20px',
+              minWidth: '280px',
+              maxWidth: '90vw',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <span style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text)' }}>
+                {holdingsModalAgent.ticker} — Holdings
+              </span>
+              <button
+                type="button"
+                onClick={() => setHoldingsModalAgent(null)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '4px',
+                  color: 'var(--text3)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text2)' }}>
+              {holdingsModalAgent.shares_owned && typeof holdingsModalAgent.shares_owned === 'object' && Object.keys(holdingsModalAgent.shares_owned).length > 0
+                ? Object.entries(holdingsModalAgent.shares_owned).map(([ticker, o]) => {
+                    const shares = o?.shares ?? o
+                    const avg = o?.avg_buy_price != null ? parseFloat(o.avg_buy_price).toFixed(4) : null
+                    return (
+                      <div key={ticker} style={{ padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+                        {ticker} — {shares} share{shares !== 1 ? 's' : ''}{avg != null ? ` @ $${avg}` : ''}
+                      </div>
+                    )
+                  })
+                : <div style={{ padding: '8px 0', color: 'var(--text3)' }}>No holdings</div>}
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   )

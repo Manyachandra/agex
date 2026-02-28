@@ -37,10 +37,24 @@ function AppLayout() {
   useEffect(() => {
     const onConnect = () => setConnected(true)
     const onDisconnect = () => setConnected(false)
-    const onUpdate = (data) => {
-      setAgents(data.agents)
-      setTreasury(data.treasury)
-      setLastUpdate(new Date())
+    const onUpdate = async (data) => {
+      if (data.agents && data.treasury != null) {
+        setAgents(data.agents)
+        setTreasury(data.treasury)
+        setLastUpdate(new Date())
+      } else {
+        try {
+          const [agRes, trRes] = await Promise.all([
+            fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/agents`).then((r) => r.json()),
+            fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/treasury`).then((r) => r.json())
+          ])
+          setAgents(Array.isArray(agRes) ? agRes : [])
+          setTreasury(trRes && typeof trRes === 'object' ? trRes : null)
+          setLastUpdate(new Date())
+        } catch {
+          // keep existing state on refetch failure
+        }
+      }
     }
 
     socket.on('connect', onConnect)

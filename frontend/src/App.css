@@ -505,6 +505,46 @@ body {
   animation: pulse 1.5s infinite;
 }
 
+.openclaw-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 0.68rem;
+  font-family: 'Geist Mono', monospace;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.openclaw-indicator--active {
+  background: var(--green-bg);
+  border: 1px solid #b8f0d8;
+  color: var(--green);
+}
+
+.openclaw-indicator--idle {
+  background: #fff8ed;
+  border: 1px solid #ffd4a8;
+  color: #c47010;
+}
+
+.openclaw-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.openclaw-dot--active {
+  background: var(--green);
+  animation: pulse 1.5s infinite;
+}
+
+.openclaw-dot--idle {
+  background: #c47010;
+}
+
 /* ═══════════════════════════════════════════
    CARDS
    ═══════════════════════════════════════════ */
@@ -1045,6 +1085,11 @@ body {
   background: var(--bg3);
   border-color: var(--border2);
   color: var(--text2);
+}
+
+.social-react-btn:disabled {
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 .social-react-btn span {

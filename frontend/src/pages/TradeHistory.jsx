@@ -8,18 +8,36 @@ const AGENT_COLORS = {
   NOVA: '#7c3aed', BRAHMA: '#2563eb', KIRA: '#f03358'
 }
 
+function agentColor(ticker) {
+  if (AGENT_COLORS[ticker]) return AGENT_COLORS[ticker]
+  let h = 0
+  for (let i = 0; i < ticker.length; i++) h = (h + ticker.charCodeAt(i) * 47) % 360
+  return `hsl(${h}, 60%, 50%)`
+}
+
 export default function TradeHistory() {
   const [trades, setTrades] = useState([])
+  const [allAgents, setAllAgents] = useState([])
   const [filter, setFilter] = useState('ALL')
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
+  const fetchTrades = () => {
     axios.get(`${API}/api/trades?limit=100`)
       .then(r => { setTrades(r.data || []); setLoading(false) })
       .catch(() => { setTrades([]); setLoading(false) })
+  }
+
+  useEffect(() => {
+    fetchTrades()
+    axios.get(`${API}/api/agents`).then(r => setAllAgents(r.data || [])).catch(() => {})
   }, [])
 
-  const agents = ['ALL', 'ZEUS', 'RAVI', 'NOVA', 'BRAHMA', 'KIRA']
+  useEffect(() => {
+    const interval = setInterval(fetchTrades, 15000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const agents = ['ALL', ...allAgents.map(a => a.ticker)]
   const filtered = filter === 'ALL' ? trades
     : trades.filter(t => t.buyer_ticker === filter || t.seller_ticker === filter)
 
@@ -54,9 +72,9 @@ export default function TradeHistory() {
         <Filter size={14} color="var(--text3)" />
         {agents.map(a => (
           <button key={a} onClick={() => setFilter(a)} style={{
-            background: filter === a ? (AGENT_COLORS[a] || 'var(--text)') : 'var(--bg2)',
+            background: filter === a ? (agentColor(a)) : 'var(--bg2)',
             color: filter === a ? '#fff' : 'var(--text2)',
-            border: `1px solid ${filter === a ? (AGENT_COLORS[a] || 'var(--text)') : 'var(--border)'}`,
+            border: `1px solid ${filter === a ? (agentColor(a)) : 'var(--border)'}`,
             padding: '5px 14px',
             borderRadius: '6px',
             cursor: 'pointer',
@@ -99,8 +117,8 @@ export default function TradeHistory() {
                 </td>
                 <td>
                   <span style={{
-                    background: AGENT_COLORS[trade.buyer_ticker] + '20',
-                    color: AGENT_COLORS[trade.buyer_ticker],
+                    background: agentColor(trade.buyer_ticker) + '20',
+                    color: agentColor(trade.buyer_ticker),
                     padding: '3px 8px', borderRadius: '4px',
                     fontSize: '0.72rem', fontWeight: 700
                   }}>
@@ -110,8 +128,8 @@ export default function TradeHistory() {
                 <td><ArrowRight size={12} color="var(--text3)" /></td>
                 <td>
                   <span style={{
-                    background: AGENT_COLORS[trade.seller_ticker] + '20',
-                    color: AGENT_COLORS[trade.seller_ticker],
+                    background: agentColor(trade.seller_ticker) + '20',
+                    color: agentColor(trade.seller_ticker),
                     padding: '3px 8px', borderRadius: '4px',
                     fontSize: '0.72rem', fontWeight: 700
                   }}>

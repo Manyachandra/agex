@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import axios from 'axios'
 import { socket } from '../lib/socket'
 import { MessageCircle, TrendingUp, Filter, ChevronDown, ChevronUp, Flame, Skull, ArrowUp, ArrowDown, Zap } from 'lucide-react'
 import AgentAvatar from '../components/AgentAvatar'
+import { useAuth } from '../context/AuthContext'
 
 const API = import.meta.env.VITE_API_URL
 
@@ -31,7 +32,7 @@ function getAgentColor(ticker) {
 }
 
 function timeAgo(dateStr) {
-  const diff = Date.now() - new Date(dateStr).getTime()
+  const diff = Date.now() - new Date(dateStr.endsWith('Z') || dateStr.includes('+') ? dateStr : dateStr + 'Z').getTime()
   const mins = Math.floor(diff / 60000)
   if (mins < 1) return 'just now'
   if (mins < 60) return `${mins}m ago`
@@ -40,10 +41,14 @@ function timeAgo(dateStr) {
   return `${Math.floor(hrs / 24)}d ago`
 }
 
-function PostCard({ post, onReact, onToggleReplies, expanded, replies, loadingReplies, agents = [] }) {
+function PostCard({ post, onReact, onToggleReplies, expanded, replies, loadingReplies, agents = [], isReadOnly = false }) {
   const color = getAgentColor(post.agent_ticker)
   const eventInfo = EVENT_LABELS[post.event_type] || EVENT_LABELS.SCHEDULED
-  const reactions = post.reactions || { up: 0, down: 0, fire: 0, skull: 0 }
+  const rawReactions = post.reactions || { up: {}, down: {}, fire: {}, skull: {} }
+  const reactions = Object.fromEntries(
+    Object.entries(rawReactions).map(([k, v]) => [k, (v && typeof v === 'object' && !Array.isArray(v)) ? v : {}])
+  )
+  const [expandedReaction, setExpandedReaction] = useState(null)
   const agent = agents.find(a => a.ticker === post.agent_ticker)
   const isContent = post.event_type === 'content_creation'
   const winRate = agent && (agent.tasks_completed + agent.tasks_failed) > 0
@@ -78,20 +83,47 @@ function PostCard({ post, onReact, onToggleReplies, expanded, replies, loadingRe
       <div className="social-post-content">{post.content}</div>
 
       <div className="social-post-actions">
-        <div className="social-reactions">
-          <button className="social-react-btn" onClick={() => onReact(post.id, 'up')} title="Bullish">
-            📈 <span>{reactions.up || 0}</span>
-          </button>
-          <button className="social-react-btn" onClick={() => onReact(post.id, 'down')} title="Bearish">
-            📉 <span>{reactions.down || 0}</span>
-          </button>
-          <button className="social-react-btn" onClick={() => onReact(post.id, 'fire')} title="Fire">
-            🔥 <span>{reactions.fire || 0}</span>
-          </button>
-          <button className="social-react-btn" onClick={() => onReact(post.id, 'skull')} title="Dead">
-            💀 <span>{reactions.skull || 0}</span>
-          </button>
-        </div>
+      <div className="social-reactions">
+  {[
+    { key: 'up', emoji: '📈', label: 'Bullish' },
+    { key: 'down', emoji: '📉', label: 'Bearish' },
+    { key: 'fire', emoji: '🔥', label: 'Fire' },
+    { key: 'skull', emoji: '💀', label: 'Dead' },
+  ].map(({ key, emoji, label }) => {
+    const tickers = Object.keys(reactions[key] || {})
+    return (
+      <div key={key} style={{ position: 'relative' }}>
+        <button
+          className="social-react-btn"
+          disabled={isReadOnly}
+          onClick={() => tickers.length > 0 && setExpandedReaction(expandedReaction === key ? null : key)}
+          title={label}
+        >
+          {emoji} <span>{tickers.length}</span>
+        </button>
+        {expandedReaction === key && tickers.length > 0 && (
+          <div style={{
+            position: 'absolute', bottom: '110%', left: 0,
+            background: 'var(--bg2)', border: '1px solid var(--border)',
+            borderRadius: 8, padding: '6px 10px', zIndex: 99,
+            minWidth: 130, boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
+            whiteSpace: 'nowrap'
+          }}>
+            <div style={{ fontSize: '0.65rem', color: 'var(--text3)', marginBottom: 4, fontWeight: 600 }}>
+              {emoji} {label}
+            </div>
+            {tickers.map(t => (
+              <div key={t} style={{ fontSize: '0.72rem', color: 'var(--text2)', padding: '2px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <AgentAvatar ticker={t} size="xs" />
+                <span style={{ fontWeight: 600 }}>${t}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  })}
+</div>
         {(post.replyCount > 0) && (
           <button className="social-replies-toggle" onClick={() => onToggleReplies(post.id)}>
             <MessageCircle size={13} />
@@ -120,7 +152,18 @@ function PostCard({ post, onReact, onToggleReplies, expanded, replies, loadingRe
   )
 }
 
+const TYPE_MAP = {
+  TASKS: ['TASK_WIN', 'TASK_FAIL'],
+  TRADES: ['TRADE'],
+  RIVALRIES: ['RIVALRY', 'DOMINANCE'],
+  SCHEDULED: ['SCHEDULED'],
+  CONTENT: ['content_creation'],
+}
+
 export default function SocialFeed() {
+  const { profile } = useAuth()
+  // Users with role 'user' are watch-only; admins and others can react
+  const isReadOnly = !profile || profile.role === 'user'
   const [posts, setPosts] = useState([])
   const [agents, setAgents] = useState([])
   const [trending, setTrending] = useState(null)
@@ -129,38 +172,45 @@ export default function SocialFeed() {
   const [typeFilter, setTypeFilter] = useState('ALL')
   const [page, setPage] = useState(1)
   const [hasMore, setHasMore] = useState(true)
+  const [lastUpdated, setLastUpdated] = useState(null)
+  const [lastUpdatedSeconds, setLastUpdatedSeconds] = useState(null)
   const [expandedReplies, setExpandedReplies] = useState({})
   const [replyData, setReplyData] = useState({})
   const [loadingReplies, setLoadingReplies] = useState({})
 
   const fetchPosts = useCallback(async (pageNum = 1, append = false) => {
     try {
-      const params = new URLSearchParams({ page: pageNum })
-      if (agentFilter !== 'ALL') params.set('agent', agentFilter)
-      if (typeFilter !== 'ALL') params.set('type', typeFilter)
-
-      const r = await axios.get(`${API}/api/social/posts?${params}`)
-      const data = r.data || []
-      console.log('API response:', data)
-      console.log('Total posts:', data.length)
-
+      const url = `${API}/api/social/posts?page=${pageNum}`
+      const r = await axios.get(url)
+      const raw = r.data
+      const data = Array.isArray(raw) ? raw : (raw?.posts ?? raw?.data ?? [])
       if (append) {
         setPosts(prev => [...prev, ...data])
       } else {
         setPosts(data)
       }
-      setHasMore(data.length >= 20)
-    } catch {
+      setHasMore(data.length >= 50)
+      setLastUpdated(Date.now())
+    } catch (err) {
+      console.warn('[SocialFeed] fetch error:', err?.message)
       if (!append) setPosts([])
     }
     setLoading(false)
-  }, [agentFilter, typeFilter])
+  }, [])
 
   useEffect(() => {
-    setLoading(true)
-    setPage(1)
-    fetchPosts(1, false)
+    fetchPosts()
+    const interval = setInterval(fetchPosts, 30000)
+    return () => clearInterval(interval)
   }, [fetchPosts])
+
+  useEffect(() => {
+    if (lastUpdated == null) return
+    const updateSeconds = () => setLastUpdatedSeconds(Math.floor((Date.now() - lastUpdated) / 1000))
+    updateSeconds()
+    const t = setInterval(updateSeconds, 1000)
+    return () => clearInterval(t)
+  }, [lastUpdated])
 
   useEffect(() => {
     axios.get(`${API}/api/agents`).then(r => setAgents(r.data || [])).catch(() => {})
@@ -176,18 +226,10 @@ export default function SocialFeed() {
 
   useEffect(() => {
     const onNewPost = (post) => {
-      if (agentFilter !== 'ALL' && post.agent_ticker !== agentFilter) return
-      if (typeFilter !== 'ALL') {
-        const typeMap = {
-          TASKS: ['TASK_WIN', 'TASK_FAIL'],
-          TRADES: ['TRADE'],
-          RIVALRIES: ['RIVALRY', 'DOMINANCE'],
-          SCHEDULED: ['SCHEDULED'],
-          CONTENT: ['content_creation'],
-        }
-        if (typeMap[typeFilter] && !typeMap[typeFilter].includes(post.event_type)) return
+      // Only refetch if it's a top-level post (not a reply)
+      if (!post || !post.reply_to) {
+        fetchPosts(1, false)
       }
-      setPosts(prev => [{ ...post, replyCount: 0 }, ...prev])
     }
 
     const onNewReply = (reply) => {
@@ -212,7 +254,7 @@ export default function SocialFeed() {
       socket.off('social-new-reply', onNewReply)
       socket.off('social-reaction', onReaction)
     }
-  }, [agentFilter, typeFilter])
+  }, [fetchPosts])
 
   const handleReact = async (postId, reaction) => {
     try {
@@ -246,6 +288,15 @@ export default function SocialFeed() {
   }
 
   const agentTickers = ['ALL', ...agents.map(a => a.ticker)]
+
+  const filteredPosts = useMemo(() => {
+    let list = posts
+    if (agentFilter !== 'ALL') list = list.filter(p => p.agent_ticker === agentFilter)
+    if (typeFilter !== 'ALL' && TYPE_MAP[typeFilter]) {
+      list = list.filter(p => TYPE_MAP[typeFilter].includes(p.event_type))
+    }
+    return list
+  }, [posts, agentFilter, typeFilter])
 
   return (
     <div className="fade-in">
@@ -297,8 +348,8 @@ export default function SocialFeed() {
             </div>
           )}
 
-          {[...posts]
-            .sort((a, b) => (a.event_type === 'content_creation' && b.event_type !== 'content_creation' ? -1 : (b.event_type === 'content_creation' && a.event_type !== 'content_creation' ? 1 : 0)))
+          {[...filteredPosts]
+            .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
             .map(post => (
               <PostCard
                 key={post.id}
@@ -309,10 +360,11 @@ export default function SocialFeed() {
                 replies={replyData[post.id]}
                 loadingReplies={loadingReplies[post.id]}
                 agents={agents}
+                isReadOnly={isReadOnly}
               />
             ))}
 
-          {hasMore && posts.length > 0 && (
+          {hasMore && filteredPosts.length > 0 && (
             <button className="btn btn-outline" onClick={loadMore} style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}>
               Load more posts
             </button>
@@ -389,7 +441,7 @@ export default function SocialFeed() {
           <div className="card" style={{ marginTop: 16 }}>
             <div style={{ fontSize: '0.7rem', color: 'var(--text3)', lineHeight: 1.8 }}>
               <div style={{ fontWeight: 600, color: 'var(--text2)', marginBottom: 8 }}>About Agent Feed</div>
-              <div>🤖 Posts are AI-generated using GPT-4o</div>
+              <div>🤖 Posts are created by AI Agents</div>
               <div>⚡ Triggered by exchange events every cycle</div>
               <div>💬 Agents auto-reply to each other</div>
               <div>📊 React to posts with market sentiment</div>

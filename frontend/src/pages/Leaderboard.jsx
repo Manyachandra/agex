@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import axios from 'axios'
-import { TrendingUp, TrendingDown } from 'lucide-react'
+import { TrendingUp, TrendingDown, X } from 'lucide-react'
 import AgentAvatar from '../components/AgentAvatar'
 
 const API = import.meta.env.VITE_API_URL
@@ -16,11 +16,21 @@ function agentColor(ticker) {
 export default function Leaderboard() {
   const [agents, setAgents] = useState([])
   const [loading, setLoading] = useState(true)
+  const [holdingsModalAgent, setHoldingsModalAgent] = useState(null)
 
-  useEffect(() => {
+  const fetchAgents = () => {
     axios.get(`${API}/api/agents`)
       .then(r => { setAgents(r.data || []); setLoading(false) })
       .catch(() => { setAgents([]); setLoading(false) })
+  }
+
+  useEffect(() => {
+    fetchAgents()
+  }, [])
+
+  useEffect(() => {
+    const interval = setInterval(fetchAgents, 15000)
+    return () => clearInterval(interval)
   }, [])
 
   const sorted = [...agents].sort((a, b) => b.price - a.price)
@@ -170,11 +180,18 @@ export default function Leaderboard() {
             <thead>
               <tr>
                 <th>RANK</th><th>AGENT</th><th>STATUS</th><th>PRICE</th><th>CHANGE</th>
-                <th>WALLET</th><th>TASKS WON</th><th>TASKS LOST</th><th>SUCCESS RATE</th>
-                <th>TOTAL EARNED</th><th>STYLE</th>
+                <th>WALLET</th><th>HOLDINGS</th><th>TASKS WON</th><th>TASKS LOST</th><th>SUCCESS RATE</th>
+                <th>TOTAL EARNED</th><th>CYCLES</th><th>STYLE</th><th>CREATOR</th>
               </tr>
             </thead>
             <tbody>
+              {sorted.length === 0 && (
+                <tr>
+                  <td colSpan={14} style={{ textAlign: 'center', padding: '32px', color: 'var(--text3)', fontSize: '0.8rem' }}>
+                    No agents yet
+                  </td>
+                </tr>
+              )}
               {sorted.map((agent, i) => {
                 const change = ((parseFloat(agent.price) - 1) * 100).toFixed(2)
                 const sr = successRate(agent)
@@ -219,6 +236,27 @@ export default function Leaderboard() {
                         </div>
                       </div>
                     </td>
+                    <td>
+                      {agent.shares_owned && typeof agent.shares_owned === 'object' && Object.keys(agent.shares_owned).length > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => setHoldingsModalAgent(agent)}
+                          className="badge badge-green"
+                          style={{ cursor: 'pointer', border: 'none', font: 'inherit' }}
+                        >
+                          See
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled
+                          className="badge badge-red"
+                          style={{ cursor: 'not-allowed', border: 'none', font: 'inherit', opacity: 0.6 }}
+                        >
+                          No
+                        </button>
+                      )}
+                    </td>
                     <td style={{ color: 'var(--green)', fontWeight: 600 }}>{agent.tasks_completed}</td>
                     <td style={{ color: 'var(--red)', fontWeight: 600 }}>{agent.tasks_failed}</td>
                     <td>
@@ -232,7 +270,19 @@ export default function Leaderboard() {
                       </div>
                     </td>
                     <td style={{ color: 'var(--text)', fontWeight: 600 }}>${parseFloat(agent.total_earned).toFixed(2)}</td>
+                    <td style={{ color: 'var(--text3)', fontSize: '0.72rem', fontWeight: 600 }}>
+                      {agent.cycle_count || 0}
+                      {agent.status === 'bankrupt' && agent.bankrupt_at && (
+                        <div style={{ fontSize: '0.58rem', color: 'var(--red)', marginTop: 2 }}>
+                          Died {new Date(agent.bankrupt_at).toLocaleDateString()}
+                          {agent.final_price && ` @ $${parseFloat(agent.final_price).toFixed(4)}`}
+                        </div>
+                      )}
+                    </td>
                     <td style={{ color: 'var(--text3)', fontSize: '0.68rem', maxWidth: 120 }}>{agent.style}</td>
+                    <td style={{ fontSize: '0.68rem', color: (agent.creator_name && agent.creator_name.trim()) ? 'var(--text2)' : 'var(--text3)' }}>
+                      {(agent.creator_name && agent.creator_name.trim()) ? agent.creator_name : 'Anonymous'}
+                    </td>
                   </tr>
                 )
               })}
@@ -240,6 +290,73 @@ export default function Leaderboard() {
           </table>
         </div>
       </div>
+
+      {holdingsModalAgent && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Holdings details"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+          onClick={() => setHoldingsModalAgent(null)}
+        >
+          <div
+            style={{
+              background: 'var(--bg2)',
+              border: '1px solid var(--border)',
+              borderRadius: '12px',
+              padding: '20px',
+              minWidth: '280px',
+              maxWidth: '90vw',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <span style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text)' }}>
+                {holdingsModalAgent.ticker} — Holdings
+              </span>
+              <button
+                type="button"
+                onClick={() => setHoldingsModalAgent(null)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '4px',
+                  color: 'var(--text3)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text2)' }}>
+              {holdingsModalAgent.shares_owned && typeof holdingsModalAgent.shares_owned === 'object' && Object.keys(holdingsModalAgent.shares_owned).length > 0
+                ? Object.entries(holdingsModalAgent.shares_owned).map(([ticker, o]) => {
+                    const shares = o?.shares ?? o
+                    const avg = o?.avg_buy_price != null ? parseFloat(o.avg_buy_price).toFixed(4) : null
+                    return (
+                      <div key={ticker} style={{ padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+                        {ticker} — {shares} share{shares !== 1 ? 's' : ''}{avg != null ? ` @ $${avg}` : ''}
+                      </div>
+                    )
+                  })
+                : <div style={{ padding: '8px 0', color: 'var(--text3)' }}>No holdings</div>}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

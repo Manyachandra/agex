@@ -22,11 +22,11 @@ export default function AgentProfiles() {
   const [histories, setHistories] = useState({})
   const [selected, setSelected] = useState(null)
 
-  useEffect(() => {
+  const fetchAgents = () => {
     axios.get(`${API}/api/agents`).then(async r => {
       const data = r.data || []
       setAgents(data)
-      setSelected(data[0]?.ticker)
+      setSelected(prev => prev ?? data[0]?.ticker)
       const h = {}
       for (const a of data) {
         try {
@@ -36,6 +36,19 @@ export default function AgentProfiles() {
       }
       setHistories(h)
     }).catch(() => setAgents([]))
+  }
+
+  useEffect(() => {
+    fetchAgents()
+  }, [])
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      axios.get(`${API}/api/agents`).then(r => {
+        setAgents(r.data || [])
+      }).catch(() => {})
+    }, 15000)
+    return () => clearInterval(interval)
   }, [])
 
   const agent = agents.find(a => a.ticker === selected)
@@ -123,6 +136,8 @@ export default function AgentProfiles() {
                 { label: 'Total Earned', value: `$${parseFloat(agent.total_earned).toFixed(2)}`, icon: TrendingUp, color: 'var(--green)' },
                 { label: 'Tasks Won', value: agent.tasks_completed, icon: Target, color: 'var(--green)' },
                 { label: 'Tasks Lost', value: agent.tasks_failed, icon: Zap, color: 'var(--red)' },
+                { label: 'Cycles Completed', value: agent.cycle_count || 0, icon: Zap, color: 'var(--blue)' },
+                ...(agent.status === 'bankrupt' && agent.final_price ? [{ label: 'Final Price', value: `$${parseFloat(agent.final_price).toFixed(4)}`, icon: TrendingDown, color: 'var(--red)' }] : []),
               ].map((s, i) => (
                 <div key={i} className="card">
                   <div style={{ fontSize: '0.6rem', color: 'var(--text3)', letterSpacing: '1px', marginBottom: '8px', textTransform: 'uppercase' }}>
@@ -134,6 +149,33 @@ export default function AgentProfiles() {
                 </div>
               ))}
             </div>
+
+            {/* Holdings (shares_owned) */}
+            {agent.shares_owned && typeof agent.shares_owned === 'object' && Object.keys(agent.shares_owned).length > 0 && (
+              <div className="card" style={{ marginBottom: '16px' }}>
+                <div className="card-header">
+                  <div className="card-title">Holdings</div>
+                  <span className="badge badge-blue">SHARES</span>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
+                  {Object.entries(agent.shares_owned).map(([ticker, o]) => (
+                    <div key={ticker} style={{
+                      display: 'flex', alignItems: 'center', gap: '8px',
+                      padding: '8px 12px', background: 'var(--bg3)', borderRadius: '8px',
+                      border: '1px solid var(--border)'
+                    }}>
+                      <span style={{ fontWeight: 700, color: AGENT_COLORS[ticker] || 'var(--text)' }}>{ticker}</span>
+                      <span style={{ color: 'var(--text2)', fontSize: '0.85rem' }}>
+                        {o?.shares ?? o} share{(o?.shares ?? o) !== 1 ? 's' : ''}
+                        {o?.avg_buy_price != null && (
+                          <span style={{ color: 'var(--text3)', marginLeft: '6px' }}>@ ${parseFloat(o.avg_buy_price).toFixed(4)} avg</span>
+                        )}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Price chart */}
             <div className="card">
