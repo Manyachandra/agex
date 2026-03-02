@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import axios from 'axios'
 import { ArrowRight, Filter } from 'lucide-react'
+import { ScrollReveal, CountUp } from '../components/ScrollReveal'
+import { usePageFocus } from '../hooks/usePageFocus'
 
 const API = import.meta.env.VITE_API_URL
 const AGENT_COLORS = {
@@ -32,6 +34,8 @@ export default function TradeHistory() {
     axios.get(`${API}/api/agents`).then(r => setAllAgents(r.data || [])).catch(() => {})
   }, [])
 
+  usePageFocus(fetchTrades)
+
   useEffect(() => {
     const interval = setInterval(fetchTrades, 15000)
     return () => clearInterval(interval)
@@ -47,111 +51,120 @@ export default function TradeHistory() {
 
   return (
     <div className="fade-in">
-      <div className="page-header">
-        <div className="page-title">Trade History</div>
-        <div className="page-subtitle">All agent-to-agent trades executed autonomously</div>
-      </div>
-
-      {/* Stats */}
-      <div className="grid-4" style={{ marginBottom: '20px' }}>
-        {[
-          { label: 'Total Trades', value: trades.length, color: 'var(--blue)' },
-          { label: 'Total Volume', value: `$${totalVolume.toFixed(2)}`, color: 'var(--green)' },
-          { label: 'Total Fees', value: `$${totalFees.toFixed(4)}`, color: 'var(--red)' },
-          { label: 'Avg Trade Size', value: `$${avgTradeSize.toFixed(2)}`, color: 'var(--gold)' },
-        ].map((s, i) => (
-          <div key={i} className="card">
-            <div style={{ fontSize: '0.6rem', color: 'var(--text3)', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '8px' }}>{s.label}</div>
-            <div style={{ fontSize: '1.4rem', fontWeight: 800, color: s.color, fontFamily: "'Syne', sans-serif" }}>{s.value}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Filter */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
-        <Filter size={14} color="var(--text3)" />
-        {agents.map(a => (
-          <button key={a} onClick={() => setFilter(a)} style={{
-            background: filter === a ? (agentColor(a)) : 'var(--bg2)',
-            color: filter === a ? '#fff' : 'var(--text2)',
-            border: `1px solid ${filter === a ? (agentColor(a)) : 'var(--border)'}`,
-            padding: '5px 14px',
-            borderRadius: '6px',
-            cursor: 'pointer',
-            fontFamily: "'Geist Mono', monospace",
-            fontSize: '0.72rem',
-            fontWeight: 600,
-            transition: 'all 0.2s'
-          }}>
-            {a}
-          </button>
-        ))}
-        <span style={{ fontSize: '0.7rem', color: 'var(--text3)', marginLeft: 'auto' }}>
-          {filtered.length} trades
-        </span>
-      </div>
-
-      {/* Table */}
-      <div className="card">
-        <div className="table-scroll">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>TIME</th>
-              <th>BUYER</th>
-              <th></th>
-              <th>SELLER</th>
-              <th>SHARES</th>
-              <th>PRICE</th>
-              <th>TOTAL COST</th>
-              <th>FEE (2%)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((trade, i) => (
-              <tr key={trade.id}>
-                <td style={{ color: 'var(--text3)', fontSize: '0.7rem' }}>{filtered.length - i}</td>
-                <td style={{ color: 'var(--text3)', fontSize: '0.7rem' }}>
-                  {new Date(trade.created_at).toLocaleTimeString()}<br />
-                  <span style={{ fontSize: '0.6rem' }}>{new Date(trade.created_at).toLocaleDateString()}</span>
-                </td>
-                <td>
-                  <span style={{
-                    background: agentColor(trade.buyer_ticker) + '20',
-                    color: agentColor(trade.buyer_ticker),
-                    padding: '3px 8px', borderRadius: '4px',
-                    fontSize: '0.72rem', fontWeight: 700
-                  }}>
-                    {trade.buyer_ticker}
-                  </span>
-                </td>
-                <td><ArrowRight size={12} color="var(--text3)" /></td>
-                <td>
-                  <span style={{
-                    background: agentColor(trade.seller_ticker) + '20',
-                    color: agentColor(trade.seller_ticker),
-                    padding: '3px 8px', borderRadius: '4px',
-                    fontSize: '0.72rem', fontWeight: 700
-                  }}>
-                    {trade.seller_ticker}
-                  </span>
-                </td>
-                <td style={{ fontWeight: 600, color: 'var(--gold)' }}>{trade.shares}</td>
-                <td style={{ fontWeight: 600, color: 'var(--text)' }}>${parseFloat(trade.price_at_trade).toFixed(4)}</td>
-                <td style={{ fontWeight: 600, color: 'var(--green)' }}>${parseFloat(trade.total_cost).toFixed(2)}</td>
-                <td style={{ color: 'var(--red)', fontSize: '0.72rem' }}>${parseFloat(trade.fee).toFixed(4)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {filtered.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text3)', fontSize: '0.8rem' }}>
-            No trades found
-          </div>
-        )}
+      <ScrollReveal delay={0}>
+        <div className="page-header">
+          <div className="page-title">Trade History</div>
+          <div className="page-subtitle">All agent-to-agent trades executed autonomously</div>
         </div>
-      </div>
+      </ScrollReveal>
+
+      <ScrollReveal delay={100}>
+        <div className="grid-4" style={{ marginBottom: '20px' }}>
+          {[
+            { label: 'Total Trades', value: trades.length, color: 'var(--blue)', prefix: '', decimals: 0 },
+            { label: 'Total Volume', value: totalVolume, color: 'var(--green)', prefix: '$', decimals: 2 },
+            { label: 'Total Fees', value: totalFees, color: 'var(--red)', prefix: '$', decimals: 4 },
+            { label: 'Avg Trade Size', value: avgTradeSize, color: 'var(--gold)', prefix: '$', decimals: 2 },
+          ].map((s, i) => (
+            <div key={i} className="card">
+              <div style={{ fontSize: '0.6rem', color: 'var(--text3)', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '8px' }}>
+                {s.label}
+              </div>
+              <div style={{ fontSize: '1.4rem', fontWeight: 800, color: s.color, fontFamily: "'Syne', sans-serif" }}>
+                <CountUp value={s.value} prefix={s.prefix} decimals={s.decimals} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </ScrollReveal>
+
+      <ScrollReveal delay={150}>
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <Filter size={14} color="var(--text3)" />
+          {agents.map(a => (
+            <button key={a} onClick={() => setFilter(a)} style={{
+              background: filter === a ? agentColor(a) : 'var(--bg2)',
+              color: filter === a ? '#fff' : 'var(--text2)',
+              border: `1px solid ${filter === a ? agentColor(a) : 'var(--border)'}`,
+              padding: '5px 14px',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontFamily: "'Geist Mono', monospace",
+              fontSize: '0.72rem',
+              fontWeight: 600,
+              transition: 'all 0.2s'
+            }}>
+              {a}
+            </button>
+          ))}
+          <span style={{ fontSize: '0.7rem', color: 'var(--text3)', marginLeft: 'auto' }}>
+            {filtered.length} trades
+          </span>
+        </div>
+      </ScrollReveal>
+
+      <ScrollReveal delay={200}>
+        <div className="card">
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>TIME</th>
+                  <th>BUYER</th>
+                  <th></th>
+                  <th>SELLER</th>
+                  <th>SHARES</th>
+                  <th>PRICE</th>
+                  <th>TOTAL COST</th>
+                  <th>FEE (2%)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((trade, i) => (
+                  <tr key={trade.id}>
+                    <td style={{ color: 'var(--text3)', fontSize: '0.7rem' }}>{filtered.length - i}</td>
+                    <td style={{ color: 'var(--text3)', fontSize: '0.7rem' }}>
+                      {new Date(trade.created_at).toLocaleTimeString()}<br />
+                      <span style={{ fontSize: '0.6rem' }}>{new Date(trade.created_at).toLocaleDateString()}</span>
+                    </td>
+                    <td>
+                      <span style={{
+                        background: agentColor(trade.buyer_ticker) + '20',
+                        color: agentColor(trade.buyer_ticker),
+                        padding: '3px 8px', borderRadius: '4px',
+                        fontSize: '0.72rem', fontWeight: 700
+                      }}>
+                        {trade.buyer_ticker}
+                      </span>
+                    </td>
+                    <td><ArrowRight size={12} color="var(--text3)" /></td>
+                    <td>
+                      <span style={{
+                        background: agentColor(trade.seller_ticker) + '20',
+                        color: agentColor(trade.seller_ticker),
+                        padding: '3px 8px', borderRadius: '4px',
+                        fontSize: '0.72rem', fontWeight: 700
+                      }}>
+                        {trade.seller_ticker}
+                      </span>
+                    </td>
+                    <td style={{ fontWeight: 600, color: 'var(--gold)' }}>{trade.shares}</td>
+                    <td style={{ fontWeight: 600, color: 'var(--text)' }}>${parseFloat(trade.price_at_trade).toFixed(4)}</td>
+                    <td style={{ fontWeight: 600, color: 'var(--green)' }}>${parseFloat(trade.total_cost).toFixed(2)}</td>
+                    <td style={{ color: 'var(--red)', fontSize: '0.72rem' }}>${parseFloat(trade.fee).toFixed(4)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {filtered.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text3)', fontSize: '0.8rem' }}>
+                No trades found
+              </div>
+            )}
+          </div>
+        </div>
+      </ScrollReveal>
     </div>
   )
 }

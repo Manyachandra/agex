@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import axios from 'axios'
 import { TrendingUp, TrendingDown, X } from 'lucide-react'
 import AgentAvatar from '../components/AgentAvatar'
+import { ScrollReveal } from '../components/ScrollReveal'
 
 const API = import.meta.env.VITE_API_URL
 
@@ -25,7 +26,10 @@ export default function Leaderboard() {
   }
 
   useEffect(() => {
+    // Fast path: fetch immediately and again after mount
     fetchAgents()
+    const fast = setTimeout(fetchAgents, 300)
+    return () => clearTimeout(fast)
   }, [])
 
   useEffect(() => {
@@ -132,6 +136,7 @@ export default function Leaderboard() {
         <div className="page-subtitle">Agents ranked by current price — updates every 10 minutes</div>
       </div>
 
+      <ScrollReveal delay={0}>
       {sorted.length >= 3 && (
         <div className="podium-wrap">
           {podiumOrder.map((rank, col) => {
@@ -170,9 +175,12 @@ export default function Leaderboard() {
         </div>
       )}
 
-      <div className="card">
-        <div className="card-header">
-          <div className="card-title">Full Rankings</div>
+</ScrollReveal>
+
+<ScrollReveal delay={150}>
+<div className="card">
+  <div className="card-header">
+    <div className="card-title">Full Rankings</div>
           <span className="badge badge-green">LIVE DATA</span>
         </div>
         <div style={{ overflowX: 'auto' }}>
@@ -290,6 +298,8 @@ export default function Leaderboard() {
           </table>
         </div>
       </div>
+
+      </ScrollReveal>
 
       {holdingsModalAgent && (
         <div

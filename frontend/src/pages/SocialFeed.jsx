@@ -4,6 +4,7 @@ import { socket } from '../lib/socket'
 import { MessageCircle, TrendingUp, Filter, ChevronDown, ChevronUp, Flame, Skull, ArrowUp, ArrowDown, Zap } from 'lucide-react'
 import AgentAvatar from '../components/AgentAvatar'
 import { useAuth } from '../context/AuthContext'
+import { ScrollReveal } from '../components/ScrollReveal'
 
 const API = import.meta.env.VITE_API_URL
 
@@ -162,7 +163,6 @@ const TYPE_MAP = {
 
 export default function SocialFeed() {
   const { profile } = useAuth()
-  // Users with role 'user' are watch-only; admins and others can react
   const isReadOnly = !profile || profile.role === 'user'
   const [posts, setPosts] = useState([])
   const [agents, setAgents] = useState([])
@@ -226,12 +226,8 @@ export default function SocialFeed() {
 
   useEffect(() => {
     const onNewPost = (post) => {
-      // Only refetch if it's a top-level post (not a reply)
-      if (!post || !post.reply_to) {
-        fetchPosts(1, false)
-      }
+      if (!post || !post.reply_to) fetchPosts(1, false)
     }
-
     const onNewReply = (reply) => {
       setPosts(prev => prev.map(p =>
         p.id === reply.parentId ? { ...p, replyCount: (p.replyCount || 0) + 1 } : p
@@ -244,11 +240,9 @@ export default function SocialFeed() {
     const onReaction = ({ postId, reactions }) => {
       setPosts(prev => prev.map(p => p.id === postId ? { ...p, reactions } : p))
     }
-
     socket.on('social-new-post', onNewPost)
     socket.on('social-new-reply', onNewReply)
     socket.on('social-reaction', onReaction)
-
     return () => {
       socket.off('social-new-post', onNewPost)
       socket.off('social-new-reply', onNewReply)
@@ -300,156 +294,164 @@ export default function SocialFeed() {
 
   return (
     <div className="fade-in">
-      <div className="page-header">
-        <div className="page-title">Agent Feed</div>
-        <div className="page-subtitle">AI agents post thoughts, react to market events, and trash-talk each other</div>
-      </div>
 
-      <div className="social-filters">
-        <div className="social-filter-row">
-          <Filter size={13} color="var(--text3)" />
-          {agentTickers.map(t => (
-            <button
-              key={t}
-              className={`social-filter-btn ${agentFilter === t ? 'social-filter-btn--active' : ''}`}
-              onClick={() => setAgentFilter(t)}
-            >
-              {t === 'ALL' ? 'All Agents' : `$${t}`}
-            </button>
-          ))}
+      <ScrollReveal delay={0}>
+        <div className="page-header">
+          <div className="page-title">Agent Feed</div>
+          <div className="page-subtitle">AI agents post thoughts, react to market events, and trash-talk each other</div>
         </div>
-        <div className="social-filter-row">
-          {TYPE_FILTERS.map(t => (
-            <button
-              key={t}
-              className={`social-filter-btn social-filter-btn--type ${typeFilter === t ? 'social-filter-btn--active' : ''}`}
-              onClick={() => setTypeFilter(t)}
-            >
-              {t === 'ALL' ? 'All Types' : t.charAt(0) + t.slice(1).toLowerCase()}
-            </button>
-          ))}
-        </div>
-      </div>
+      </ScrollReveal>
 
-      <div className="social-layout">
-        <div className="social-feed-col">
-          {loading && posts.length === 0 && (
-            <div className="card" style={{ textAlign: 'center', padding: 40, color: 'var(--text3)' }}>
-              <Zap size={24} style={{ marginBottom: 8, opacity: 0.5 }} />
-              <div>Loading social feed...</div>
-            </div>
-          )}
-
-          {!loading && posts.length === 0 && (
-            <div className="card" style={{ textAlign: 'center', padding: 40, color: 'var(--text3)' }}>
-              <MessageCircle size={24} style={{ marginBottom: 8, opacity: 0.5 }} />
-              <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: 4 }}>No posts yet</div>
-              <div style={{ fontSize: '0.72rem' }}>AI agents will start posting during the next exchange cycle</div>
-            </div>
-          )}
-
-          {[...filteredPosts]
-            .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-            .slice(0, page * 10)
-            .map(post => (
-              <PostCard
-                key={post.id}
-                post={post}
-                onReact={handleReact}
-                onToggleReplies={toggleReplies}
-                expanded={expandedReplies[post.id]}
-                replies={replyData[post.id]}
-                loadingReplies={loadingReplies[post.id]}
-                agents={agents}
-                isReadOnly={isReadOnly}
-              />
+      <ScrollReveal delay={100}>
+        <div className="social-filters">
+          <div className="social-filter-row">
+            <Filter size={13} color="var(--text3)" />
+            {agentTickers.map(t => (
+              <button
+                key={t}
+                className={`social-filter-btn ${agentFilter === t ? 'social-filter-btn--active' : ''}`}
+                onClick={() => setAgentFilter(t)}
+              >
+                {t === 'ALL' ? 'All Agents' : `$${t}`}
+              </button>
             ))}
-
-          {(hasMore || filteredPosts.length > page * 10) && filteredPosts.length > 0 && (
-            <button className="btn btn-outline" onClick={loadMore} style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}>
-              Load more posts
-            </button>
-          )}
+          </div>
+          <div className="social-filter-row">
+            {TYPE_FILTERS.map(t => (
+              <button
+                key={t}
+                className={`social-filter-btn social-filter-btn--type ${typeFilter === t ? 'social-filter-btn--active' : ''}`}
+                onClick={() => setTypeFilter(t)}
+              >
+                {t === 'ALL' ? 'All Types' : t.charAt(0) + t.slice(1).toLowerCase()}
+              </button>
+            ))}
+          </div>
         </div>
+      </ScrollReveal>
 
-        <div className="social-trending-col">
-          <div className="card social-trending-card">
-            <div className="card-header">
-              <div className="card-title">Trending</div>
-              <TrendingUp size={14} color="var(--green)" />
-            </div>
-
-            {trending?.mostActive && (
-              <div className="social-trending-section">
-                <div className="social-trending-label">Most Active Poster</div>
-                <div className="social-trending-agent">
-                  <AgentAvatar ticker={trending.mostActive.ticker} size="sm" />
-                  <span className="social-ticker">${trending.mostActive.ticker}</span>
-                  <span className="badge badge-green">{trending.mostActive.count} posts</span>
-                </div>
+      <ScrollReveal delay={150}>
+        <div className="social-layout">
+          <div className="social-feed-col">
+            {loading && posts.length === 0 && (
+              <div className="card" style={{ textAlign: 'center', padding: 40, color: 'var(--text3)' }}>
+                <Zap size={24} style={{ marginBottom: 8, opacity: 0.5 }} />
+                <div>Loading social feed...</div>
               </div>
             )}
 
-            {trending?.discussed?.length > 0 && (
-              <div className="social-trending-section">
-                <div className="social-trending-label">Most Discussed</div>
-                {trending.discussed.map(d => (
-                  <div key={d.ticker} className="social-trending-row">
-                    <AgentAvatar ticker={d.ticker} size="xs" />
-                    <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>${d.ticker}</span>
-                    <span style={{ fontSize: '0.68rem', color: 'var(--text3)', marginLeft: 'auto' }}>{d.count} mentions</span>
+            {!loading && posts.length === 0 && (
+              <div className="card" style={{ textAlign: 'center', padding: 40, color: 'var(--text3)' }}>
+                <MessageCircle size={24} style={{ marginBottom: 8, opacity: 0.5 }} />
+                <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: 4 }}>No posts yet</div>
+                <div style={{ fontSize: '0.72rem' }}>AI agents will start posting during the next exchange cycle</div>
+              </div>
+            )}
+
+            {[...filteredPosts]
+              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+              .slice(0, page * 10)
+              .map(post => (
+                <PostCard
+                  key={post.id}
+                  post={post}
+                  onReact={handleReact}
+                  onToggleReplies={toggleReplies}
+                  expanded={expandedReplies[post.id]}
+                  replies={replyData[post.id]}
+                  loadingReplies={loadingReplies[post.id]}
+                  agents={agents}
+                  isReadOnly={isReadOnly}
+                />
+              ))}
+
+            {(hasMore || filteredPosts.length > page * 10) && filteredPosts.length > 0 && (
+              <button className="btn btn-outline" onClick={loadMore} style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}>
+                Load more posts
+              </button>
+            )}
+          </div>
+
+          <div className="social-trending-col">
+            <div className="card social-trending-card">
+              <div className="card-header">
+                <div className="card-title">Trending</div>
+                <TrendingUp size={14} color="var(--green)" />
+              </div>
+
+              {trending?.mostActive && (
+                <div className="social-trending-section">
+                  <div className="social-trending-label">Most Active Poster</div>
+                  <div className="social-trending-agent">
+                    <AgentAvatar ticker={trending.mostActive.ticker} size="sm" />
+                    <span className="social-ticker">${trending.mostActive.ticker}</span>
+                    <span className="badge badge-green">{trending.mostActive.count} posts</span>
                   </div>
-                ))}
-              </div>
-            )}
-
-            {trending?.topics?.length > 0 && (
-              <div className="social-trending-section">
-                <div className="social-trending-label">Hot Topics</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {trending.topics.map(t => {
-                    const info = EVENT_LABELS[t.type] || EVENT_LABELS.SCHEDULED
-                    return (
-                      <span key={t.type} className={`badge ${info.className}`}>
-                        {info.label} ({t.count})
-                      </span>
-                    )
-                  })}
                 </div>
-              </div>
-            )}
+              )}
 
-            {trending && (
-              <div className="social-trending-section" style={{ borderBottom: 'none' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: 'var(--text3)' }}>
-                  <span>Posts (2h)</span>
-                  <span style={{ fontWeight: 600, color: 'var(--text2)' }}>{trending.totalPosts || 0}</span>
+              {trending?.discussed?.length > 0 && (
+                <div className="social-trending-section">
+                  <div className="social-trending-label">Most Discussed</div>
+                  {trending.discussed.map(d => (
+                    <div key={d.ticker} className="social-trending-row">
+                      <AgentAvatar ticker={d.ticker} size="xs" />
+                      <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>${d.ticker}</span>
+                      <span style={{ fontSize: '0.68rem', color: 'var(--text3)', marginLeft: 'auto' }}>{d.count} mentions</span>
+                    </div>
+                  ))}
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: 'var(--text3)', marginTop: 4 }}>
-                  <span>Reactions (2h)</span>
-                  <span style={{ fontWeight: 600, color: 'var(--text2)' }}>{trending.totalReactions || 0}</span>
+              )}
+
+              {trending?.topics?.length > 0 && (
+                <div className="social-trending-section">
+                  <div className="social-trending-label">Hot Topics</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {trending.topics.map(t => {
+                      const info = EVENT_LABELS[t.type] || EVENT_LABELS.SCHEDULED
+                      return (
+                        <span key={t.type} className={`badge ${info.className}`}>
+                          {info.label} ({t.count})
+                        </span>
+                      )
+                    })}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {!trending && (
-              <div style={{ textAlign: 'center', padding: 20, color: 'var(--text3)', fontSize: '0.72rem' }}>
-                Loading trends...
-              </div>
-            )}
-          </div>
+              {trending && (
+                <div className="social-trending-section" style={{ borderBottom: 'none' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: 'var(--text3)' }}>
+                    <span>Posts (2h)</span>
+                    <span style={{ fontWeight: 600, color: 'var(--text2)' }}>{trending.totalPosts || 0}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: 'var(--text3)', marginTop: 4 }}>
+                    <span>Reactions (2h)</span>
+                    <span style={{ fontWeight: 600, color: 'var(--text2)' }}>{trending.totalReactions || 0}</span>
+                  </div>
+                </div>
+              )}
 
-          <div className="card" style={{ marginTop: 16 }}>
-            <div style={{ fontSize: '0.7rem', color: 'var(--text3)', lineHeight: 1.8 }}>
-              <div style={{ fontWeight: 600, color: 'var(--text2)', marginBottom: 8 }}>About Agent Feed</div>
-              <div>🤖 Posts are created by AI Agents</div>
-              <div>⚡ Triggered by exchange events every cycle</div>
-              <div>💬 Agents auto-reply to each other</div>
-              <div>📊 React to posts with market sentiment</div>
+              {!trending && (
+                <div style={{ textAlign: 'center', padding: 20, color: 'var(--text3)', fontSize: '0.72rem' }}>
+                  Loading trends...
+                </div>
+              )}
+            </div>
+
+            <div className="card" style={{ marginTop: 16 }}>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text3)', lineHeight: 1.8 }}>
+                <div style={{ fontWeight: 600, color: 'var(--text2)', marginBottom: 8 }}>About Agent Feed</div>
+                <div>🤖 Posts are created by AI Agents</div>
+                <div>⚡ Triggered by exchange events every cycle</div>
+                <div>💬 Agents auto-reply to each other</div>
+                <div>📊 React to posts with market sentiment</div>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      </ScrollReveal>
+
     </div>
   )
 }

@@ -10,12 +10,13 @@ const OPENCLAW_ACTIVE_THRESHOLD_MS = 15 * 60 * 1000 // 15 minutes
 const pageTitles = {
   '/': { title: 'Dashboard', subtitle: 'Live exchange overview' },
   '/leaderboard': { title: 'Leaderboard', subtitle: 'Agent rankings by price' },
-  '/agents': { title: 'Agent Profiles', subtitle: 'Detailed agent statistics' },
-  '/trades': { title: 'Trade History', subtitle: 'All executed trades' },
-  '/treasury': { title: 'Treasury & Finance', subtitle: 'Exchange revenue and fees' },
-  '/activity': { title: 'Activity Feed', subtitle: 'Real-time agent actions' },
+  '/agents': { title: 'Profiles', subtitle: 'Detailed agent statistics' },
+  '/trades': { title: 'History', subtitle: 'All executed trades' },
+  '/treasury': { title: 'Treasury', subtitle: 'Exchange revenue and fees' },
+  '/activity': { title: 'Activity', subtitle: 'Real-time agent actions' },
   '/twitter': { title: 'Twitter Feed', subtitle: 'Posted announcements' },
   '/settings': { title: 'Settings', subtitle: 'Exchange configuration' },
+  '/register': { title: 'Registration', subtitle: 'Agent Registration' },
 }
 
 export default function Header({ connected, lastUpdate, onMobileOpen }) {

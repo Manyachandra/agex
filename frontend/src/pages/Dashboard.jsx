@@ -3,7 +3,7 @@ import axios from 'axios'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts'
 import { TrendingUp, TrendingDown, DollarSign, ArrowLeftRight, Zap, Users, AlertTriangle, Crown, X } from 'lucide-react'
 import AgentAvatar from '../components/AgentAvatar'
-
+import { ScrollReveal, CountUp } from '../components/ScrollReveal'
 const API = import.meta.env.VITE_API_URL
 
 const AGENT_COLORS = {
@@ -21,12 +21,27 @@ function agentColor(ticker) {
 }
 
 export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }) {
-  const [agents, setAgents] = useState([])
-  const [treasury, setTreasury] = useState(null)
+  const [agents, setAgents] = useState(liveAgents || [])
+  const [treasury, setTreasury] = useState(liveTreasury || null)
   const [activity, setActivity] = useState([])
   const [stats, setStats] = useState(null)
   const [priceHistory, setPriceHistory] = useState([])
   const [holdingsModalAgent, setHoldingsModalAgent] = useState(null)
+
+  const fetchPriceHistory = async (agentList) => {
+    if (!agentList?.length) return
+    const histories = await Promise.all(
+      agentList.map(a => axios.get(`${API}/api/price-history/${a.ticker}`).catch(() => ({ data: [] })))
+    )
+    const merged = {}
+    histories.forEach((h, i) => {
+      (h.data || []).forEach((point, j) => {
+        if (!merged[j]) merged[j] = { cycle: j + 1 }
+        merged[j][agentList[i].ticker] = parseFloat(point.price)
+      })
+    })
+    setPriceHistory(Object.values(merged))
+  }
 
   const fetchAll = async () => {
     try {
@@ -40,26 +55,22 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
       setTreasury(tr.data)
       setActivity(ac.data || [])
       setStats(st.data)
-
-      if (ag.data?.length) {
-        const histories = await Promise.all(
-          ag.data.map(a => axios.get(`${API}/api/price-history/${a.ticker}`).catch(() => ({ data: [] })))
-        )
-        const merged = {}
-        histories.forEach((h, i) => {
-          (h.data || []).forEach((point, j) => {
-            if (!merged[j]) merged[j] = { cycle: j + 1 }
-            merged[j][ag.data[i].ticker] = parseFloat(point.price)
-          })
-        })
-        setPriceHistory(Object.values(merged))
-      }
+      fetchPriceHistory(ag.data)
     } catch (err) {
       console.error('Dashboard fetch error:', err)
     }
   }
 
   useEffect(() => {
+    // Fast path: load agents immediately for Leader/Risk cards
+    Promise.all([
+      axios.get(`${API}/api/agents`).catch(() => ({ data: [] })),
+      axios.get(`${API}/api/treasury`).catch(() => ({ data: null }))
+    ]).then(([ag, tr]) => {
+      if (ag.data?.length) setAgents(ag.data)
+      if (tr.data) setTreasury(tr.data)
+    })
+    // Full load runs in parallel
     fetchAll()
   }, [])
 
@@ -87,6 +98,7 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
       </div>
 
       {/* KPI Row */}
+      <ScrollReveal delay={0}>
       <div className="grid-4" style={{ marginBottom: '20px' }}>
         {[
           {
@@ -127,7 +139,12 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
               <div style={{ fontSize: '0.65rem', color: 'var(--text3)', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '8px' }}>
                 {kpi.label}
               </div>
-              <div className="stat-number" style={{ color: kpi.color, marginBottom: '4px' }}>{kpi.value}</div>
+              <div className="stat-number" style={{ color: kpi.color, marginBottom: '4px' }}>
+              <CountUp value={typeof kpi.value === 'string' ? kpi.value.replace(/[^0-9.]/g, '') : kpi.value}
+                prefix={typeof kpi.value === 'string' && kpi.value.startsWith('$') ? '$' : ''}
+                decimals={typeof kpi.value === 'string' && kpi.value.includes('.') ? 2 : 0}
+              />
+            </div>
               <div style={{ fontSize: '0.65rem', color: 'var(--text3)' }}>{kpi.sub}</div>
             </div>
             <div style={{ background: kpi.bg, padding: '10px', borderRadius: '10px' }}>
@@ -136,7 +153,9 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
           </div>
         ))}
       </div>
+      </ScrollReveal>
 
+      <ScrollReveal delay={100}>
       <div className="grid-2" style={{ marginBottom: '20px' }}>
 
         {/* Price Chart */}
@@ -234,7 +253,8 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
             </div>
           )}
         </div>
-      </div>
+        </div>
+      </ScrollReveal>
 
       {/* Top Gainers + Biggest Drops */}
       {(() => {
@@ -265,6 +285,7 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
         }
 
         return (
+          <ScrollReveal delay={200}>
           <div className="grid-2" style={{ marginBottom: 20 }}>
             <div className="card">
               <div className="card-header">
@@ -282,10 +303,12 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
               {drops.length === 0 && <div style={{ padding: 16, textAlign: 'center', color: 'var(--text3)', fontSize: '0.72rem' }}>No drops yet</div>}
               {drops.map((a, i) => renderRow(a, i, false))}
             </div>
-          </div>
+            </div>
+          </ScrollReveal>
         )
       })()}
 
+      <ScrollReveal delay={300}>
       {/* All Agents Table */}
       {(() => {
         const visible = agents.filter(a => ['active', 'dominant', 'bankrupt'].includes(a.status))
@@ -370,8 +393,11 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
         )
       })()}
 
-      {/* Activity Feed Preview */}
-      <div className="card">
+</ScrollReveal>
+
+<ScrollReveal delay={400}>
+{/* Activity Feed Preview */}
+<div className="card">
         <div className="card-header">
           <div className="card-title">Recent Activity</div>
           <span className="badge badge-red">STREAMING</span>
@@ -422,6 +448,8 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
           ))}
         </div>
       </div>
+
+      </ScrollReveal>
 
       {holdingsModalAgent && (
         <div
