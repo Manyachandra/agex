@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ConnectButton } from '@rainbow-me/rainbowkit'
-import { useAccount, useChainId, useSwitchChain, useSendTransaction, useWaitForTransactionReceipt } from 'wagmi'
+import { useAccount, useChainId, useSendTransaction, useWaitForTransactionReceipt } from 'wagmi'
 import { parseEther } from 'viem'
 import { base } from 'wagmi/chains'
 import axios from 'axios'
@@ -69,7 +68,6 @@ export default function Betting() {
   const navigate = useNavigate()
   const { address, isConnected } = useAccount()
   const chainId = useChainId()
-  const { switchChain } = useSwitchChain()
 
   const [agents, setAgents]                 = useState([])
   const [myBets, setMyBets]                 = useState([])
@@ -252,19 +250,6 @@ export default function Betting() {
   return (
     <div className="betting-page">
 
-      {/* Header */}
-      <div className="betting-header">
-        <div className="betting-header-left">
-          <Dice5 size={24} />
-          <h1>Agent Betting</h1>
-          <span className="betting-badge">Base Network</span>
-          <span className="betting-badge betting-badge-eth">ETH</span>
-        </div>
-        <div className="betting-header-right">
-          <ConnectButton showBalance={false} chainStatus="icon" accountStatus="address" />
-        </div>
-      </div>
-
       {/* How it works */}
       <div style={{
         background: '#0d1f2d', border: '1px solid #1e3a4a', borderRadius: 10,
@@ -287,8 +272,7 @@ export default function Betting() {
         <div className="betting-connect-card">
           <Wallet size={32} />
           <h3>Connect Your Wallet</h3>
-          <p>Connect an EVM wallet on Base network to place bets</p>
-          <ConnectButton />
+          <p>Use the wallet button in the header to connect on Base network</p>
         </div>
       )}
 
@@ -297,10 +281,7 @@ export default function Betting() {
         <div className="betting-connect-card betting-wrong-network">
           <AlertTriangle size={32} />
           <h3>Wrong Network</h3>
-          <p>Please switch to Base network to place bets</p>
-          <button className="btn-primary" onClick={() => switchChain({ chainId: base.id })}>
-            Switch to Base
-          </button>
+          <p>Use the wallet button in the header to switch to Base network</p>
         </div>
       )}
 
@@ -383,29 +364,29 @@ export default function Betting() {
                         </div>
                       )}
 
-                      <div style={{ display: 'flex', gap: 16, marginTop: 8, flexWrap: 'wrap' }}>
-                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                          <span style={{ color: '#64748b' }}>Win Rate </span>
-                          <span style={{ color: '#e2e8f0', fontWeight: 600 }}>
+<div style={{ display: 'flex', gap: 16, marginTop: 8, flexWrap: 'wrap' }}>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text3)' }}>
+                          <span style={{ color: 'var(--text3)' }}>Win Rate </span>
+                          <span style={{ color: 'var(--text)', fontWeight: 600 }}>
                             {agent.tasks_completed + agent.tasks_failed > 0
                               ? ((agent.tasks_completed / (agent.tasks_completed + agent.tasks_failed)) * 100).toFixed(1)
                               : '0.0'}%
                           </span>
                         </div>
-                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                          <span style={{ color: '#64748b' }}>Wallet </span>
-                          <span style={{ color: '#e2e8f0', fontWeight: 600 }}>${parseFloat(agent.wallet).toFixed(2)}</span>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text3)' }}>
+                          <span style={{ color: 'var(--text3)' }}>Wallet </span>
+                          <span style={{ color: 'var(--text)', fontWeight: 600 }}>${parseFloat(agent.wallet).toFixed(2)}</span>
                         </div>
-                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                          <span style={{ color: '#64748b' }}>Earned </span>
-                          <span style={{ color: '#e2e8f0', fontWeight: 600 }}>${parseFloat(agent.total_earned).toFixed(2)}</span>
-                        </div>
-                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                          <span style={{ color: '#22c55e' }}>▲ {agent.tasks_completed}W </span>
-                          <span style={{ color: '#ef4444' }}>▼ {agent.tasks_failed}L</span>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text3)' }}>
+                          <span style={{ color: 'var(--text3)' }}>Earned </span>
+                          <span style={{ color: 'var(--text)', fontWeight: 600 }}>${parseFloat(agent.total_earned).toFixed(2)}</span>
                         </div>
                         <div style={{ fontSize: '0.75rem' }}>
-                          <span style={{ color: parseFloat(pct) >= 0 ? '#22c55e' : '#ef4444', fontWeight: 700 }}>
+                          <span style={{ color: 'var(--green)' }}>▲ {agent.tasks_completed}W </span>
+                          <span style={{ color: 'var(--red)' }}>▼ {agent.tasks_failed}L</span>
+                        </div>
+                        <div style={{ fontSize: '0.75rem' }}>
+                          <span style={{ color: parseFloat(pct) >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 700 }}>
                             {parseFloat(pct) >= 0 ? '▲' : '▼'} {Math.abs(parseFloat(pct)).toFixed(2)}% since launch
                           </span>
                         </div>

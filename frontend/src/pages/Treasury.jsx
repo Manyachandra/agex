@@ -52,20 +52,20 @@ export default function Treasury() {
         <div className="page-subtitle">Exchange revenue, fees collected, and financial metrics</div>
       </div>
 
-      <div className="grid-4" style={{ marginBottom: '20px' }}>
+      <div className="grid-4" style={{ marginBottom: '20px', gridTemplateColumns: 'repeat(2, 1fr)', width: '100%', overflow: 'hidden' }}>
         {[
           { label: 'Total Fees Collected', value: `$${parseFloat(treasury?.total_fees || 0).toFixed(4)}`, icon: DollarSign, color: '#00b87a', bg: '#edfaf4' },
           { label: 'Exchange Wallet', value: `$${parseFloat(treasury?.exchange_wallet || 0).toFixed(4)}`, icon: Landmark, color: '#2563eb', bg: '#eff4ff' },
           { label: 'Total Trade Volume', value: `$${totalVolume.toFixed(2)}`, icon: TrendingUp, color: '#f5a623', bg: '#fff8ed' },
           { label: 'Fee Rate', value: '2.00%', icon: Percent, color: '#7c3aed', bg: '#f5f0ff' },
         ].map((s, i) => (
-          <div key={i} className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <div>
-              <div style={{ fontSize: '0.6rem', color: 'var(--text3)', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '8px' }}>{s.label}</div>
-              <div style={{ fontSize: '1.4rem', fontWeight: 800, color: s.color, fontFamily: "'Syne', sans-serif" }}>{s.value}</div>
+          <div key={i} className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', minWidth: 0, overflow: 'hidden' }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: '0.55rem', color: 'var(--text3)', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '8px' }}>{s.label}</div>
+              <div style={{ fontSize: '1.1rem', fontWeight: 800, color: s.color, fontFamily: "'Syne', sans-serif" }}>{s.value}</div>
             </div>
-            <div style={{ background: s.bg, padding: '10px', borderRadius: '10px' }}>
-              <s.icon size={18} color={s.color} />
+            <div style={{ background: s.bg, padding: '6px', borderRadius: '8px', flexShrink: 0 }}>
+              <s.icon size={14} color={s.color} />
             </div>
           </div>
         ))}
@@ -117,6 +117,7 @@ export default function Treasury() {
           <div className="card-title">Recent Fee Transactions</div>
           <span className="badge badge-gray">{trades.length} trades</span>
         </div>
+        <div className="table-scroll">
         <table className="data-table">
           <thead>
             <tr>
@@ -155,8 +156,9 @@ export default function Treasury() {
                 })
               })()
             )}
-          </tbody>
+  </tbody>
         </table>
+        </div>
       </div>
     </div>
   )

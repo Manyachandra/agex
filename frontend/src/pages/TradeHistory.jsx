@@ -93,6 +93,7 @@ export default function TradeHistory() {
 
       {/* Table */}
       <div className="card">
+        <div className="table-scroll">
         <table className="data-table">
           <thead>
             <tr>
@@ -149,6 +150,7 @@ export default function TradeHistory() {
             No trades found
           </div>
         )}
+        </div>
       </div>
     </div>
   )

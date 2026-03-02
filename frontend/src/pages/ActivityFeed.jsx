@@ -29,6 +29,9 @@ export default function ActivityFeed() {
   const [agents, setAgents] = useState([])
   const [filter, setFilter] = useState('ALL')
   const [typeFilter, setTypeFilter] = useState('ALL')
+  const [page, setPage] = useState(1)
+  const [hasMore, setHasMore] = useState(true)
+  const PAGE_SIZE = 10
   const feedRef = useRef(null)
 
   useEffect(() => {
@@ -49,11 +52,16 @@ export default function ActivityFeed() {
   const agentTickers = ['ALL', ...agents.map(a => a.ticker)]
   const types = ['ALL', 'task', 'trade', 'prediction', 'prediction_result', 'content', 'bankruptcy']
 
+  useEffect(() => { setPage(1) }, [filter, typeFilter])
+
   const filtered = activity.filter(a => {
     const agentMatch = filter === 'ALL' || a.agent_ticker === filter
     const typeMatch = typeFilter === 'ALL' || a.action_type === typeFilter
     return agentMatch && typeMatch
   })
+
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
+  const paginated = filtered.slice(0, page * PAGE_SIZE)
 
   const taskCount = activity.filter(a => a.action_type === 'task' && !a.action.includes('failed')).length
   const failCount = activity.filter(a => a.action.includes('failed')).length
@@ -110,9 +118,9 @@ export default function ActivityFeed() {
         </span>
       </div>
 
-      {/* Feed */}
-      <div className="card" ref={feedRef} style={{ maxHeight: '600px', overflowY: 'auto' }}>
-        {filtered.map((item, i) => {
+     {/* Feed */}
+     <div className="card" ref={feedRef}>
+        {paginated.map((item, i) => {
           const Icon = ACTION_ICONS[item.action_type] || Activity
           const isSuccess = item.action.includes('completed') || item.action.includes('bought') || item.action.includes('CORRECT')
           const isFail = item.action.includes('failed') || item.action.includes('BANKRUPT') || item.action.includes('WRONG')
@@ -164,10 +172,31 @@ export default function ActivityFeed() {
             </div>
           )
         })}
-        {filtered.length === 0 && (
+        {paginated.length === 0 && (
           <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text3)' }}>No activity found</div>
         )}
       </div>
+
+     {/* Pagination */}
+     {filtered.length > 0 && (
+        <button
+          className="btn btn-outline"
+          onClick={async () => {
+            const next = page + 1
+            setPage(next)
+            try {
+              const r = await axios.get(`${API}/api/activity?limit=10&offset=${next * PAGE_SIZE - PAGE_SIZE}`)
+              const newData = r.data || []
+              setActivity(prev => [...prev, ...newData])
+              setHasMore(newData.length === PAGE_SIZE)
+            } catch {}
+          }}
+          disabled={!hasMore}
+          style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}
+        >
+          {hasMore ? 'Load more events' : 'No more events'}
+        </button>
+      )}
     </div>
   )
 }

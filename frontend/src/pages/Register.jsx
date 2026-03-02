@@ -1,13 +1,24 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import axios from 'axios'
-import { UserPlus, Zap, CheckCircle, AlertCircle, Loader, LogIn, Upload } from 'lucide-react'
+import { UserPlus, Zap, CheckCircle, AlertCircle, Loader, LogIn, Upload, ExternalLink } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import AgentAvatar from '../components/AgentAvatar'
+import { useAccount, useChainId, useSendTransaction, useWaitForTransactionReceipt } from 'wagmi'
+import { parseUnits, encodeFunctionData } from 'viem'
+import { base } from 'wagmi/chains'
 
 const API = import.meta.env.VITE_API_URL
 const MAX_FILE_SIZE = 2 * 1024 * 1024
+const USDC_CONTRACT = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
+const HOUSE_WALLET = import.meta.env.VITE_HOUSE_WALLET || '0x518E341C981D9C64E4c8292fF6C3E8F5055ba256'
+const DEPLOY_COST = 10
+const USDC_ABI = [{
+  name: 'transfer', type: 'function', stateMutability: 'nonpayable',
+  inputs: [{ name: 'to', type: 'address' }, { name: 'amount', type: 'uint256' }],
+  outputs: [{ type: 'bool' }],
+}]
 
 const PERSONALITIES = [
   { value: 'careful and analytical', label: 'Careful & Analytical', emoji: '🧠', desc: 'High success rate, steady earnings' },
@@ -19,7 +30,15 @@ const PERSONALITIES = [
 
 export default function Register() {
   const navigate = useNavigate()
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
+  const { address, isConnected } = useAccount()
+  const chainId = useChainId()
+  const isOnBase = chainId === base.id
+  const { sendTransactionAsync } = useSendTransaction()
+  const [pendingTxHash, setPendingTxHash] = useState(undefined)
+  const [txStatus, setTxStatus] = useState('')
+  const { isLoading: isConfirming, isSuccess: isConfirmed, data: receipt } =
+    useWaitForTransactionReceipt({ hash: pendingTxHash })
   const [form, setForm] = useState({
     name: '', ticker: '', personalityStyle: '', tradingStrategy: '',
     creatorName: '', creatorTwitter: ''
@@ -67,35 +86,71 @@ export default function Register() {
     }, 500)
     return () => clearTimeout(tickerTimeout.current)
   }, [form.ticker])
+  useEffect(() => {
+    if (!isConfirmed || !receipt || !pendingTxHash) return
+    submitAgent(receipt.transactionHash)
+  }, [isConfirmed, receipt])
+
+  useEffect(() => {
+    if (!user) return
+    const name = profile?.username || user?.user_metadata?.username || user?.email?.split('@')[0] || ''
+    setForm(prev => ({ ...prev, creatorName: name }))
+  }, [user, profile])
 
   const canSubmit = form.name.trim().length >= 2 && form.ticker.length >= 2 &&
-    form.personalityStyle && tickerStatus === 'available' && !submitting
+    form.personalityStyle && tickerStatus === 'available' && !submitting && !isConfirming
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!canSubmit) return
     if (!user) { setShowLoginModal(true); return }
+    if (!isConnected) { setError('Please connect your wallet to deploy'); return }
+    if (!isOnBase) { setError('Please switch to Base network'); return }
     setSubmitting(true)
     setError(null)
+    setTxStatus('Sending $10 USDC...')
     try {
+      const data = encodeFunctionData({
+        abi: USDC_ABI,
+        functionName: 'transfer',
+        args: [HOUSE_WALLET, parseUnits('10', 6)],
+      })
+      const hash = await sendTransactionAsync({ to: USDC_CONTRACT, data })
+      setPendingTxHash(hash)
+      setTxStatus('Waiting for confirmation...')
+    } catch (err) {
+      const msg = err?.message || ''
+      const isRejected = msg.toLowerCase().includes('rejected') ||
+        msg.toLowerCase().includes('denied') || err?.code === 4001
+      setError(isRejected ? 'Transaction cancelled' : 'Transaction failed')
+      setSubmitting(false)
+      setTxStatus('')
+    }
+  }
+
+  const submitAgent = async (txHash) => {
+    try {
+      setTxStatus('Registering agent...')
       let avatarUrl = null
       if (avatarFile && form.ticker) {
         const ext = avatarFile.name.split('.').pop()
         const path = `${form.ticker}-${Date.now()}.${ext}`
-        const { error: uploadErr } = await supabase.storage.from('agent-avatars').upload(path, avatarFile, { contentType: avatarFile.type, upsert: true })
-        if (uploadErr) console.error('Avatar upload error:', uploadErr)
-        else {
+        const { error: uploadErr } = await supabase.storage
+          .from('agent-avatars').upload(path, avatarFile, { contentType: avatarFile.type, upsert: true })
+        if (!uploadErr) {
           const { data: urlData } = supabase.storage.from('agent-avatars').getPublicUrl(path)
           avatarUrl = urlData?.publicUrl || null
         }
       }
-      const payload = { ...form, createdBy: user.id, avatarUrl }
+      const payload = { ...form, createdBy: user.id, avatarUrl, txHash, userWallet: address }
       const r = await axios.post(`${API}/api/agents/register`, payload)
-      setSuccess(r.data)
+      setSuccess({ ...r.data, txHash })
     } catch (err) {
       setError(err.response?.data?.error || 'Registration failed. Try again.')
     }
     setSubmitting(false)
+    setTxStatus('')
+    setPendingTxHash(undefined)
   }
 
   if (success) {
@@ -118,10 +173,18 @@ export default function Register() {
             </div>
             <div style={{ background: 'var(--gold-bg)', borderRadius: 10, padding: 16, marginBottom: 16 }}>
               <div style={{ fontSize: '0.78rem', color: '#7c6a0a', lineHeight: 1.7 }}>
-                Your agent has been submitted for review. An admin will approve it shortly.
-                Once approved, it will join the next exchange cycle.
+                ✅ $10 USDC transaction confirmed. Your agent is pending agent approval.
+                Once approved it will join the next exchange cycle.
+                If rejected, your $10 USDC will be refunded to your wallet.
               </div>
             </div>
+            {success?.txHash && (
+              <a href={`https://basescan.org/tx/${success.txHash}`} target="_blank"
+                rel="noopener noreferrer"
+                style={{ fontSize: '0.65rem', color: 'var(--green)', display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 8 }}>
+                View Transaction <ExternalLink size={10} />
+              </a>
+            )}
             <button className="btn btn-primary" style={{ marginTop: 8, width: '100%', justifyContent: 'center', padding: '12px 0' }}
               onClick={() => navigate('/profile')}>
               View My Profile
@@ -247,7 +310,7 @@ export default function Register() {
             <div className="register-hint">{form.tradingStrategy.length}/200</div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
             <div className="register-field">
               <label className="register-label">Starting Wallet</label>
               <div className="register-input register-readonly">$10.00</div>
@@ -258,11 +321,18 @@ export default function Register() {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
             <div className="register-field">
-              <label className="register-label">Creator Name <span style={{ color: 'var(--text3)', fontWeight: 400 }}>(optional)</span></label>
-              <input className="register-input" type="text" placeholder="Your name"
-                value={form.creatorName} onChange={e => updateField('creatorName', e.target.value)} />
+              <label className="register-label">
+                Creator Name
+              </label>
+              <input
+                className="register-input register-readonly"
+                type="text"
+                value={form.creatorName}
+                readOnly
+                style={{ opacity: 0.7, cursor: 'not-allowed' }}
+              />
             </div>
             <div className="register-field">
               <label className="register-label">Creator Twitter <span style={{ color: 'var(--text3)', fontWeight: 400 }}>(optional)</span></label>
@@ -270,7 +340,12 @@ export default function Register() {
                 value={form.creatorTwitter} onChange={e => updateField('creatorTwitter', e.target.value)} />
             </div>
           </div>
-
+         
+          {isConnected && !isOnBase && (
+            <div style={{ background: 'rgba(255,100,0,0.1)', border: '1px solid rgba(255,100,0,0.3)', borderRadius: 8, padding: '8px 12px', fontSize: '0.72rem', color: '#ff8844', marginBottom: 12 }}>
+              ⚠️ Switch to Base network to deploy
+            </div>
+          )}
           {error && (
             <div style={{ background: 'var(--red-bg)', border: '1px solid #ffc8d4', borderRadius: 8, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.75rem', color: 'var(--red)' }}>
               <AlertCircle size={14} /> {error}
@@ -279,8 +354,8 @@ export default function Register() {
 
           <button type="submit" className="btn btn-primary" disabled={!canSubmit}
             style={{ width: '100%', justifyContent: 'center', padding: '14px 0', marginTop: 8, fontSize: '0.8rem', gap: 8, opacity: canSubmit ? 1 : 0.5, cursor: canSubmit ? 'pointer' : 'not-allowed' }}>
-            {submitting ? <Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Zap size={14} />}
-            {submitting ? 'Submitting...' : 'Deploy Agent to Exchange'}
+            {submitting || isConfirming ? <Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Zap size={14} />}
+            {txStatus || (submitting || isConfirming ? 'Processing...' : 'Deploy Agent — $10 USDC')}
           </button>
         </form>
 

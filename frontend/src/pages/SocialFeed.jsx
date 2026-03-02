@@ -83,47 +83,47 @@ function PostCard({ post, onReact, onToggleReplies, expanded, replies, loadingRe
       <div className="social-post-content">{post.content}</div>
 
       <div className="social-post-actions">
-      <div className="social-reactions">
-  {[
-    { key: 'up', emoji: '📈', label: 'Bullish' },
-    { key: 'down', emoji: '📉', label: 'Bearish' },
-    { key: 'fire', emoji: '🔥', label: 'Fire' },
-    { key: 'skull', emoji: '💀', label: 'Dead' },
-  ].map(({ key, emoji, label }) => {
-    const tickers = Object.keys(reactions[key] || {})
-    return (
-      <div key={key} style={{ position: 'relative' }}>
-        <button
-          className="social-react-btn"
-          disabled={isReadOnly}
-          onClick={() => tickers.length > 0 && setExpandedReaction(expandedReaction === key ? null : key)}
-          title={label}
-        >
-          {emoji} <span>{tickers.length}</span>
-        </button>
-        {expandedReaction === key && tickers.length > 0 && (
-          <div style={{
-            position: 'absolute', bottom: '110%', left: 0,
-            background: 'var(--bg2)', border: '1px solid var(--border)',
-            borderRadius: 8, padding: '6px 10px', zIndex: 99,
-            minWidth: 130, boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
-            whiteSpace: 'nowrap'
-          }}>
-            <div style={{ fontSize: '0.65rem', color: 'var(--text3)', marginBottom: 4, fontWeight: 600 }}>
-              {emoji} {label}
-            </div>
-            {tickers.map(t => (
-              <div key={t} style={{ fontSize: '0.72rem', color: 'var(--text2)', padding: '2px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <AgentAvatar ticker={t} size="xs" />
-                <span style={{ fontWeight: 600 }}>${t}</span>
+        <div className="social-reactions">
+          {[
+            { key: 'up', emoji: '📈', label: 'Bullish' },
+            { key: 'down', emoji: '📉', label: 'Bearish' },
+            { key: 'fire', emoji: '🔥', label: 'Fire' },
+            { key: 'skull', emoji: '💀', label: 'Dead' },
+          ].map(({ key, emoji, label }) => {
+            const tickers = Object.keys(reactions[key] || {})
+            return (
+              <div key={key} style={{ position: 'relative' }}>
+                <button
+                  className="social-react-btn"
+                  disabled={isReadOnly}
+                  onClick={() => tickers.length > 0 && setExpandedReaction(expandedReaction === key ? null : key)}
+                  title={label}
+                >
+                  {emoji} <span>{tickers.length}</span>
+                </button>
+                {expandedReaction === key && tickers.length > 0 && (
+                  <div style={{
+                    position: 'absolute', bottom: '110%', left: 0,
+                    background: 'var(--bg2)', border: '1px solid var(--border)',
+                    borderRadius: 8, padding: '6px 10px', zIndex: 99,
+                    minWidth: 130, boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
+                    whiteSpace: 'nowrap'
+                  }}>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--text3)', marginBottom: 4, fontWeight: 600 }}>
+                      {emoji} {label}
+                    </div>
+                    {tickers.map(t => (
+                      <div key={t} style={{ fontSize: '0.72rem', color: 'var(--text2)', padding: '2px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <AgentAvatar ticker={t} size="xs" />
+                        <span style={{ fontWeight: 600 }}>${t}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-            ))}
-          </div>
-        )}
-      </div>
-    )
-  })}
-</div>
+            )
+          })}
+        </div>
         {(post.replyCount > 0) && (
           <button className="social-replies-toggle" onClick={() => onToggleReplies(post.id)}>
             <MessageCircle size={13} />
@@ -189,7 +189,7 @@ export default function SocialFeed() {
       } else {
         setPosts(data)
       }
-      setHasMore(data.length >= 50)
+      setHasMore(data.length >= 10)
       setLastUpdated(Date.now())
     } catch (err) {
       console.warn('[SocialFeed] fetch error:', err?.message)
@@ -213,13 +213,13 @@ export default function SocialFeed() {
   }, [lastUpdated])
 
   useEffect(() => {
-    axios.get(`${API}/api/agents`).then(r => setAgents(r.data || [])).catch(() => {})
-    axios.get(`${API}/api/social/trending`).then(r => setTrending(r.data)).catch(() => {})
+    axios.get(`${API}/api/agents`).then(r => setAgents(r.data || [])).catch(() => { })
+    axios.get(`${API}/api/social/trending`).then(r => setTrending(r.data)).catch(() => { })
   }, [])
 
   useEffect(() => {
     const trendingInterval = setInterval(() => {
-      axios.get(`${API}/api/social/trending`).then(r => setTrending(r.data)).catch(() => {})
+      axios.get(`${API}/api/social/trending`).then(r => setTrending(r.data)).catch(() => { })
     }, 30000)
     return () => clearInterval(trendingInterval)
   }, [])
@@ -260,7 +260,7 @@ export default function SocialFeed() {
     try {
       const r = await axios.post(`${API}/api/social/posts/${postId}/react`, { reaction })
       setPosts(prev => prev.map(p => p.id === postId ? { ...p, reactions: r.data.reactions } : p))
-    } catch {}
+    } catch { }
   }
 
   const toggleReplies = async (postId) => {
@@ -350,6 +350,7 @@ export default function SocialFeed() {
 
           {[...filteredPosts]
             .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+            .slice(0, page * 10)
             .map(post => (
               <PostCard
                 key={post.id}
@@ -364,7 +365,7 @@ export default function SocialFeed() {
               />
             ))}
 
-          {hasMore && filteredPosts.length > 0 && (
+          {(hasMore || filteredPosts.length > page * 10) && filteredPosts.length > 0 && (
             <button className="btn btn-outline" onClick={loadMore} style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}>
               Load more posts
             </button>

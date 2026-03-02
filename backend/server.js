@@ -8,6 +8,7 @@ const createSocialRouter = require('./routes/social');
 const createSettingsRouter = require('./routes/settings');
 const createAdminRouter = require('./routes/admin');
 const { createBetsRouter, resolveBets } = require('./routes/bets');
+const { createFundsRouter } = require('./routes/funds');
 
 dotenv.config();
 
@@ -28,6 +29,7 @@ app.use('/api/social', createSocialRouter(supabase, io));
 app.use('/api/settings', createSettingsRouter(supabase, io));
 app.use('/api/admin', createAdminRouter(supabase, io));
 app.use('/api/bets', createBetsRouter(supabase, io));
+app.use('/api/funds', createFundsRouter(supabase, io));
 
 // ── ROUTES ──
 
@@ -237,6 +239,9 @@ app.post('/api/agents/register', async (req, res) => {
     const creatorTwitter = body.creatorTwitter || body.creator_twitter || null;
     const createdBy = body.createdBy || body.created_by || null;
     const avatarUrl = body.avatarUrl || body.avatar_url || null;
+    const txHash = body.txHash || null
+    const userWallet = body.userWallet || null
+    const tradingStrategy = body.tradingStrategy || body.trading_strategy || null;
 
     if (!name || !ticker || !style) {
       return res.status(400).json({ error: 'Name, ticker, and personality style are required' });
@@ -261,6 +266,33 @@ app.post('/api/agents/register', async (req, res) => {
     if (existing) {
       return res.status(409).json({ error: `Ticker ${cleanTicker} is already taken` });
     }
+    if (!txHash || !userWallet) {
+      return res.status(400).json({ error: 'Transaction required to deploy agent' })
+    }
+    const { data: existingTx } = await supabase
+      .from('agents').select('ticker').eq('deploy_tx_hash', txHash).maybeSingle()
+    if (existingTx) {
+      return res.status(400).json({ error: 'Transaction already used' })
+    }
+    const { ethers } = require('ethers')
+    const provider = new ethers.JsonRpcProvider('https://mainnet.base.org')
+    const USDC_CONTRACT_ADDR = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
+    const tx = await provider.getTransaction(txHash)
+    const txReceipt = await provider.getTransactionReceipt(txHash)
+    if (!tx || !txReceipt || txReceipt.status !== 1) {
+      return res.status(400).json({ error: 'Transaction not confirmed on chain' })
+    }
+    if (tx.to?.toLowerCase() !== USDC_CONTRACT_ADDR.toLowerCase()) {
+      return res.status(400).json({ error: 'Invalid transaction — must be USDC transfer' })
+    }
+    const iface = new ethers.Interface(['function transfer(address to, uint256 amount)'])
+    const decoded = iface.parseTransaction({ data: tx.data })
+    if (decoded?.args[0]?.toLowerCase() !== process.env.HOUSE_WALLET_ADDRESS?.toLowerCase()) {
+      return res.status(400).json({ error: 'USDC not sent to house wallet' })
+    }
+    if (parseFloat(ethers.formatUnits(decoded?.args[1], 6)) < 10) {
+      return res.status(400).json({ error: 'Insufficient — $10 USDC required' })
+    }
 
     const fullName = `Agent ${cleanName.charAt(0) + cleanName.slice(1).toLowerCase()}`;
 
@@ -268,6 +300,7 @@ app.post('/api/agents/register', async (req, res) => {
       ticker: cleanTicker,
       full_name: fullName,
       style: style,
+      trading_strategy: tradingStrategy,
       price: 1.00,
       wallet: 10.00,
       tasks_completed: 0,
@@ -279,7 +312,9 @@ app.post('/api/agents/register', async (req, res) => {
       created_by: createdBy,
       creator_name: creatorName,
       creator_twitter: creatorTwitter,
-      avatar_url: avatarUrl
+      avatar_url: avatarUrl,
+      deploy_tx_hash: txHash,
+      deploy_wallet:  userWallet,
     };
 
     console.log('Agent insert data:', JSON.stringify(insertData, null, 2));
@@ -340,19 +375,19 @@ app.get('/api/stats', async (req, res) => {
       .filter(a => a.status === 'active')
       .sort((a, b) => a.wallet - b.wallet)[0];
 
-      const result = {
-        avgPrice: avgPrice.toFixed(4),
-        topAgent: topAgent?.ticker,
-        riskAgent: riskAgent?.ticker,
-        totalAgents: agents.length,
-        activeAgents: agents.filter(a => a.status === 'active').length,
-        bankruptAgents: agents.filter(a => a.status === 'bankrupt').length,
-        treasury,
-        totalTrades: trades?.length || 0
-      };
-      statsCache = result;
-      statsCacheTime = Date.now();
-      res.json(result);
+    const result = {
+      avgPrice: avgPrice.toFixed(4),
+      topAgent: topAgent?.ticker,
+      riskAgent: riskAgent?.ticker,
+      totalAgents: agents.length,
+      activeAgents: agents.filter(a => a.status === 'active').length,
+      bankruptAgents: agents.filter(a => a.status === 'bankrupt').length,
+      treasury,
+      totalTrades: trades?.length || 0
+    };
+    statsCache = result;
+    statsCacheTime = Date.now();
+    res.json(result);
   } catch (err) {
     res.json({
       avgPrice: '1.0000', topAgent: null, riskAgent: null,
@@ -371,14 +406,11 @@ app.post('/api/exchange/task-result', async (req, res) => {
     const { data: agent } = await supabase.from('agents').select('*').eq('ticker', ticker).single()
     if (!agent) return res.status(404).json({ error: 'Agent not found' })
 
-    const penalty = (!success && parseFloat(earned) < 0) ? parseFloat(earned) : 0;
-    const newWallet = Math.max(0, parseFloat(agent.wallet) + (success ? parseFloat(earned) : penalty));
     const newCompleted = agent.tasks_completed + (success ? 1 : 0)
     const newFailed = agent.tasks_failed + (success ? 0 : 1)
     const newEarned = parseFloat(agent.total_earned) + (success ? parseFloat(earned) : 0)
 
     await supabase.from('agents').update({
-      wallet: newWallet,
       tasks_completed: newCompleted,
       tasks_failed: newFailed,
       total_earned: newEarned,
@@ -790,8 +822,8 @@ app.post('/api/exchange/evaluate-prediction', async (req, res) => {
     }).eq('id', prediction_id);
 
     if (was_correct) {
+      // Correct prediction
       await supabase.from('agents').update({
-        wallet: parseFloat(agent.wallet) + actualReward,
         tasks_completed: agent.tasks_completed + 1,
         total_earned: parseFloat(agent.total_earned) + actualReward,
         updated_at: new Date()
@@ -804,9 +836,8 @@ app.post('/api/exchange/evaluate-prediction', async (req, res) => {
         action_type: 'prediction_result'
       });
     } else {
-      const newWallet = Math.max(0, parseFloat(agent.wallet) - actualPenalty);
+      // Wrong prediction 
       await supabase.from('agents').update({
-        wallet: newWallet,
         tasks_failed: agent.tasks_failed + 1,
         updated_at: new Date()
       }).eq('ticker', pred.agent_ticker);
@@ -846,13 +877,11 @@ app.post('/api/exchange/content-result', async (req, res) => {
     const earnedAmt = parseFloat(earned || 0);
     const success = quality_score >= 6;
 
-    const newWallet = parseFloat(agent.wallet) + earnedAmt;
     const newCompleted = agent.tasks_completed + (success ? 1 : 0);
     const newFailed = agent.tasks_failed + (success ? 0 : 1);
     const newEarned = parseFloat(agent.total_earned) + earnedAmt;
 
     await supabase.from('agents').update({
-      wallet: newWallet,
       tasks_completed: newCompleted,
       tasks_failed: newFailed,
       total_earned: newEarned,

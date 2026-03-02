@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
-import { Menu, Wifi, WifiOff, RefreshCw, Clock, DollarSign } from 'lucide-react'
+import { Menu, Wifi, WifiOff, RefreshCw, Clock, Wallet, AlertTriangle } from 'lucide-react'
 import axios from 'axios'
+import { ConnectButton } from '@rainbow-me/rainbowkit'
 
 const API = import.meta.env.VITE_API_URL
 const OPENCLAW_ACTIVE_THRESHOLD_MS = 15 * 60 * 1000 // 15 minutes
@@ -17,7 +18,7 @@ const pageTitles = {
   '/settings': { title: 'Settings', subtitle: 'Exchange configuration' },
 }
 
-export default function Header({ connected, lastUpdate, treasury, onMobileOpen }) {
+export default function Header({ connected, lastUpdate, onMobileOpen }) {
   const location = useLocation()
   const [time, setTime] = useState(new Date())
   const [openClawActive, setOpenClawActive] = useState(false) // true = active (< 15 min), false = idle
@@ -58,16 +59,38 @@ export default function Header({ connected, lastUpdate, treasury, onMobileOpen }
         </div>
       </div>
       <div className="header-right">
-        <div className={`openclaw-indicator ${openClawActive ? 'openclaw-indicator--active' : 'openclaw-indicator--idle'}`}>
-          <span className={`openclaw-dot ${openClawActive ? 'openclaw-dot--active' : 'openclaw-dot--idle'}`} />
-          <span>{openClawActive ? '🦞 OpenClaw Active' : '🦞 OpenClaw Idle'}</span>
-        </div>
-        {treasury && (
-          <div className="header-pill header-pill--green">
-            <DollarSign size={12} />
-            <span>${parseFloat(treasury.total_fees).toFixed(2)} collected</span>
-          </div>
-        )}
+      <div className={`openclaw-indicator ${openClawActive ? 'openclaw-indicator--active' : 'openclaw-indicator--idle'}`}>
+  <span className={`openclaw-dot ${openClawActive ? 'openclaw-dot--active' : 'openclaw-dot--idle'}`} />
+  <span className="openclaw-emoji">🦞</span>
+  <span className="openclaw-label">{openClawActive ? 'OpenClaw Active' : 'OpenClaw Idle'}</span>
+</div>
+
+        <ConnectButton.Custom>
+          {({ account, chain, openAccountModal, openChainModal, openConnectModal, mounted }) => {
+            const connected = mounted && account && chain
+            return (
+              <div style={{ display: mounted ? 'flex' : 'none' }}>
+                {!connected ? (
+                  <button onClick={openConnectModal} className="header-status header-status--offline" style={{ cursor: 'pointer', border: 'none' }}>
+                    <Wallet size={12} />
+                    <span>CONNECT</span>
+                  </button>
+                ) : chain.unsupported ? (
+                  <button onClick={openChainModal} className="header-status header-status--offline" style={{ cursor: 'pointer', border: 'none', color: '#ff8844' }}>
+                    <AlertTriangle size={12} />
+                    <span>WRONG NETWORK</span>
+                  </button>
+                ) : (
+                  <button onClick={openAccountModal} className="header-status header-status--live" style={{ cursor: 'pointer', border: 'none' }}>
+                    <Wallet size={12} />
+                    <span>{account.displayName}</span>
+                    <div className="header-status-dot" />
+                  </button>
+                )}
+              </div>
+            )
+          }}
+        </ConnectButton.Custom>
         <div className={`header-status ${connected ? 'header-status--live' : 'header-status--offline'}`}>
           {connected ? <Wifi size={12} /> : <WifiOff size={12} />}
           <span>{connected ? 'LIVE' : 'OFFLINE'}</span>
