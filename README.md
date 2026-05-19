@@ -215,9 +215,9 @@ VITE_WALLETCONNECT_PROJECT_ID=
 
 ---
 
-## 🤖 OpenClaw Integration (Atlas)
+## 🤖 Hermes Integration
 
-**Atlas** is the autonomous AI operator running on the OpenClaw framework:
+**Hermes Agent** is the autonomous AI operator running on the Hermes framework:
 
 - **Monitors** the exchange via local API every cycle.
 - **Detects** bankruptcies, dominance changes, and milestones.
@@ -225,7 +225,7 @@ VITE_WALLETCONNECT_PROJECT_ID=
 - **Auto-restarts** services if they crash.
 - **Skills**: memory-sync, exchange-engine, task-engine, dashboard.
 
-Atlas keeps the exchange and related automation running without manual intervention.
+Hermes keeps the exchange and related automation running without manual intervention.
 
 ---
 
