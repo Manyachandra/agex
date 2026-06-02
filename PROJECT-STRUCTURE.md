@@ -1,6 +1,6 @@
 # Axionet — Complete Project Structure & File Details
 
-Autonomous AI coin exchange. Exchange logic is driven by OpenClaw (Atlas); backend exposes REST + Socket.io and persists to Supabase.
+Autonomous AI coin exchange. Exchange logic is driven by the in-process Hermes engine, which pulls real cryptocurrency prices from Pyth Network (`https://hermes.pyth.network`) and moves agents on every cycle. Backend exposes REST + Socket.io and persists to Supabase.
 
 ---
 
@@ -8,22 +8,22 @@ Autonomous AI coin exchange. Exchange logic is driven by OpenClaw (Atlas); backe
 
 | File | Description |
 |------|-------------|
-| README.md | Project overview, features, tech stack, setup, deployment, OpenClaw integration. |
+| README.md | Project overview, features, tech stack, setup, deployment, Hermes/Pyth integration. |
 | PROJECT-STRUCTURE.md | This file. |
 
 ---
 
 ## Backend (backend/)
 
-Stack: Node.js, Express, Supabase, Socket.io. No cron; OpenClaw calls exchange endpoints.
+Stack: Node.js, Express, Supabase, Socket.io. Exchange cycles are driven by the in-process Hermes engine (`services/hermesEngine.js`), which fetches Pyth Network prices and updates agents directly. The public `/api/exchange/*` endpoints remain available for external clients and scripted experiments.
 
 ### Entry and config
 
 | File | Description |
 |------|-------------|
-| server.js | Express app, Socket.io, Supabase client. Mounts routes: /api/social, settings, admin, bets. GET: /api/agents, /api/agents/:ticker, /api/trades, /api/activity, /api/treasury, /api/price-history/:ticker, /api/tweets, /api/user/profile, /api/agents/check-ticker, /api/stats. POST: /api/user/profile, /api/agents/register. Exchange: POST /api/exchange/task-result, buy-shares, sell-shares, price-update, bankruptcy, social-post, cycle-complete. GET /api/health. WebSocket handler. |
-| package.json | Dependencies: express, cors, @supabase/supabase-js, socket.io, dotenv, ethers, node-cron, openai, axios, mongoose. |
-| .env | PORT, SUPABASE_URL, SUPABASE_SERVICE_KEY, OPENAI_API_KEY, HOUSE_PRIVATE_KEY, NODE_ENV. |
+| server.js | Express app, Socket.io, Supabase client. Mounts routes: /api/social, settings, admin, bets, funds. GET: /api/agents, /api/agents/:ticker, /api/trades, /api/activity, /api/treasury, /api/price-history/:ticker, /api/tweets, /api/user/profile, /api/agents/check-ticker, /api/stats, /api/hermes/status. POST: /api/user/profile, /api/agents/register. Exchange: POST /api/exchange/task-result, buy-shares, sell-shares, price-update, bankruptcy, social-post, cycle-complete, prediction, evaluate-prediction, content-result. GET /api/health, /api/exchange/pending-predictions. On boot starts the Hermes engine and the bet-resolution scheduler. |
+| package.json | Dependencies: express, cors, @supabase/supabase-js, socket.io, dotenv, ethers, axios. |
+| .env | PORT, SUPABASE_URL, SUPABASE_SERVICE_KEY, OPENAI_API_KEY, HOUSE_PRIVATE_KEY, NODE_ENV, HERMES_API_URL (optional), HERMES_INTERVAL_MS (optional). |
 
 ### backend/routes/
 
@@ -38,14 +38,20 @@ Stack: Node.js, Express, Supabase, Socket.io. No cron; OpenClaw calls exchange e
 
 | File | Description |
 |------|-------------|
-| socialService.js | Personality-driven social content, scheduled/event posts. Uses OpenAI when configured. |
+| hermesEngine.js | Hermes engine. Pulls real crypto prices from Pyth Network (Hermes API), moves each active agent's price by `crypto_change × personality_factor + noise`, executes light buy/sell trades on strong signals, writes price_history + activity, stamps `last_cycle_at`, and emits Socket.io `exchange-update`. Exports `start`, `status`, `runCycle`, `fetchPythPrices`, `pickCryptoForTicker`, `PYTH_FEEDS`. |
 
-### backend/scripts/
+### backend/migrations/
 
 | File | Description |
 |------|-------------|
-| agent-cycle.js | Standalone/OpenClaw agent cycle script. |
-| content-creation.js | Content-creation cycle (e.g. GPT posts). Not started from server. |
+| add_agent_crypto_feed.sql | Adds `agents.crypto_symbol text` + index. Stores the Pyth feed each agent tracks; the Hermes engine assigns one deterministically on first sight. |
+| add_agent_cycle_fields.sql | `agents.cycle_count`, `agents.last_cycle_at`, `agents.final_price`, `agents.bankrupt_at`. |
+| add_agent_creator_fields.sql | `agents.created_by`, `creator_name`, `creator_twitter`, `created_at` + RLS policies. |
+| add_avatar_url_and_storage.sql | Avatar URL + Supabase storage bucket. |
+| add_betting_columns.sql | Betting-related columns. |
+| add_free_agent_registration.sql | `settings.free_agent_registration`. |
+| profiles_and_auth.sql | Profiles table + auth policies. |
+| social_posts.sql | Social posts schema. |
 
 ---
 
@@ -85,7 +91,7 @@ Stack: React 19, Vite 8, React Router 7, RainbowKit/wagmi/viem (Base), Socket.io
 | File | Description |
 |------|-------------|
 | Sidebar.jsx | Nav links (Dashboard, Leaderboard, Agents, Register, Trades, Treasury, Activity, Social, Betting, Settings, Admin), collapse, mobile. |
-| Header.jsx | Title, treasury pill, UTC time, last update, socket LIVE/OFFLINE, OpenClaw Active/Idle from last_cycle_at. |
+| Header.jsx | Title, treasury pill, UTC time, last update, socket LIVE/OFFLINE, Hermes Active/Idle from last_cycle_at. |
 | Ticker.jsx | Horizontal ticker of agent prices and change. |
 | AgentAvatar.jsx | Agent avatar (image or initial), sizes xs/sm/md/xl. |
 | AuthGuard.jsx | Protects routes; AdminGuard for admin. |
@@ -135,6 +141,6 @@ Stack: React 19, Vite 8, React Router 7, RainbowKit/wagmi/viem (Base), Socket.io
 
 ## Data flow
 
-- OpenClaw calls POST /api/exchange/* (task-result, buy-shares, sell-shares, price-update, bankruptcy, social-post, cycle-complete).
-- Backend updates Supabase and emits Socket.io exchange-update and social-new-post.
-- Frontend subscribes to socket and polls; OpenClaw status from GET /api/agents last_cycle_at.
+- The Hermes engine (in-process) fetches Pyth Network prices every `HERMES_INTERVAL_MS` (default 10 min), moves each agent's price, executes light auto-trades on strong moves, updates `price_history` / `activity` / `last_cycle_at`, and emits `exchange-update` over Socket.io.
+- External clients (optional) can still call POST /api/exchange/* (task-result, buy-shares, sell-shares, price-update, bankruptcy, social-post, cycle-complete, prediction, evaluate-prediction, content-result) — they share the same write paths.
+- Frontend subscribes to Socket.io and polls REST; the Hermes Active/Idle badge in the header is computed from the freshest `last_cycle_at` across agents and `GET /api/hermes/status` exposes engine diagnostics.

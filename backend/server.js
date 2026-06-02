@@ -9,6 +9,7 @@ const createSettingsRouter = require('./routes/settings');
 const createAdminRouter = require('./routes/admin');
 const { createBetsRouter, resolveBets } = require('./routes/bets');
 const { createFundsRouter } = require('./routes/funds');
+const hermesEngine = require('./services/hermesEngine');
 
 dotenv.config();
 
@@ -447,7 +448,7 @@ app.get('/api/stats', async (req, res) => {
   }
 });
 
-// ── EXCHANGE WRITE ENDPOINTS (Called by OpenClaw) ──
+// ── EXCHANGE WRITE ENDPOINTS (used by the Hermes engine and external clients) ──
 
 // Task result
 app.post('/api/exchange/task-result', async (req, res) => {
@@ -967,7 +968,7 @@ app.post('/api/exchange/cycle-complete', async (req, res) => {
     const { data: agents } = await supabase.from('agents').select('*').order('price', { ascending: false })
     const { data: treasury } = await supabase.from('treasury').select('*').single()
 
-    // Stamp last_cycle_at for active/dominant agents so frontend can show OpenClaw Active/Idle
+    // Stamp last_cycle_at for active/dominant agents so frontend can show Hermes Active/Idle
     const activeTickers = (agents || []).filter(a => a.status === 'active' || a.status === 'dominant').map(a => a.ticker)
     if (activeTickers.length > 0) {
       const { error: lcErr } = await supabase.from("agents").update({ last_cycle_at: now }).in("ticker", activeTickers); if (lcErr) console.error("last_cycle_at err:", lcErr.message); else console.log("✅ last_cycle_at updated")
@@ -985,7 +986,7 @@ app.post('/api/exchange/cycle-complete', async (req, res) => {
     res.status(500).json({ error: err.message })
   }
 })
-// Health check for OpenClaw
+// Health check
 app.get('/api/health', async (req, res) => {
   try {
     const { data: agents } = await supabase.from('agents').select('ticker, status, price, wallet').order('price', { ascending: false });
@@ -1002,19 +1003,14 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
-// // WebSocket connection
-// io.on('connection', (socket) => {
-//   console.log('Client connected:', socket.id);
-//   socket.on('disconnect', () => console.log('Client disconnected:', socket.id));
-// });
-
-// const PORT = process.env.PORT || 5000;
-// // Exchange cycle is now managed by OpenClaw AI (Atlas)
-// // OpenClaw calls POST /api/exchange/* endpoints every 10 minutes
-// // All exchange logic and decisions are made by OpenClaw
-// server.listen(PORT, () => {
-//   console.log(`🚀 Axionet API running on port ${PORT}`);
-// });
+// Hermes engine status (handy for debugging / monitoring the Pyth integration)
+app.get('/api/hermes/status', (req, res) => {
+  try {
+    res.json(hermesEngine.status());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // WebSocket connection
 io.on('connection', (socket) => {
@@ -1023,9 +1019,10 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 5000;
-// Exchange cycle is now managed by OpenClaw AI (Atlas)
-// OpenClaw calls POST /api/exchange/* endpoints every 10 minutes
-// All exchange logic and decisions are made by OpenClaw
+// Exchange cycle is now driven by the in-process Hermes engine, which pulls
+// real cryptocurrency prices from Pyth Network (https://hermes.pyth.network)
+// every HERMES_INTERVAL_MS (defaults to 10 minutes) and moves each agent's
+// price based on its tracked crypto's % change.
 server.listen(PORT, () => {
   console.log(`🚀 Axionet API running on port ${PORT}`);
 
@@ -1042,4 +1039,8 @@ server.listen(PORT, () => {
   }, 5 * 60 * 1000);
 
   console.log('🎲 Bet resolution scheduler started (runs every 5 min)');
+
+  // ── Hermes engine (Pyth Network price feeds) ──────────────────────────────
+  const hermesIntervalMs = parseInt(process.env.HERMES_INTERVAL_MS, 10) || 10 * 60 * 1000;
+  hermesEngine.start({ supabase, io, intervalMs: hermesIntervalMs });
 });

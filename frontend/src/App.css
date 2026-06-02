@@ -509,7 +509,7 @@ body {
   animation: pulse 1.5s infinite;
 }
 
-.openclaw-indicator {
+.hermes-indicator {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -522,60 +522,60 @@ body {
 }
 
 @media (max-width: 767px) {
-  .openclaw-indicator {
+  .hermes-indicator {
     padding: 5px 8px;
     gap: 4px;
   }
-  .openclaw-label {
+  .hermes-label {
     display: none;
   }
-  .openclaw-emoji {
+  .hermes-emoji {
     font-size: 0.9rem;
     line-height: 1;
   }
 }
 
 @media (max-width: 767px) {
-  .openclaw-indicator {
+  .hermes-indicator {
     padding: 5px 8px;
     gap: 4px;
   }
 
-  .openclaw-label {
+  .hermes-label {
     display: none;
   }
 
-  .openclaw-emoji {
+  .hermes-emoji {
     font-size: 1rem;
     line-height: 1;
   }
 }
 
-.openclaw-indicator--active {
+.hermes-indicator--active {
   background: var(--green-bg);
   border: 1px solid #b8f0d8;
   color: var(--green);
 }
 
-.openclaw-indicator--idle {
+.hermes-indicator--idle {
   background: #fff8ed;
   border: 1px solid #ffd4a8;
   color: #c47010;
 }
 
-.openclaw-dot {
+.hermes-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 
-.openclaw-dot--active {
+.hermes-dot--active {
   background: var(--green);
   animation: pulse 1.5s infinite;
 }
 
-.openclaw-dot--idle {
+.hermes-dot--idle {
   background: #c47010;
 }
 
