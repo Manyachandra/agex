@@ -31,7 +31,8 @@ module.exports = function createSettingsRouter(supabase, io) {
       const allowed = [
         'exchange_cycle_interval', 'task_cycle_interval', 'trade_fee',
         'bankruptcy_threshold', 'dominant_multiplier',
-        'allow_agent_suggestions', 'dashboard_refresh_rate'
+        'allow_agent_suggestions', 'dashboard_refresh_rate',
+        'free_agent_registration'
       ];
       const updates = {};
       for (const key of allowed) {
@@ -199,7 +200,8 @@ function getDefaults() {
   return {
     id: 1, exchange_cycle_interval: 10, task_cycle_interval: 15, trade_fee: 2,
     bankruptcy_threshold: 0.10, dominant_multiplier: 1.5,
-    allow_agent_suggestions: true, dashboard_refresh_rate: 30
+    allow_agent_suggestions: true, dashboard_refresh_rate: 30,
+    free_agent_registration: false
   };
 }
 

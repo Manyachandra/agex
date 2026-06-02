@@ -67,6 +67,47 @@ app.get('/api/agents/:ticker', async (req, res) => {
   res.json(data);
 });
 
+// Owner-only update of an agent's editable fields (non-admin self-service)
+app.put('/api/agents/:ticker', async (req, res) => {
+  try {
+    const { userId, tradingStrategy, creatorTwitter } = req.body || {};
+    if (!userId) return res.status(401).json({ error: 'userId required' });
+
+    const { data: agent, error: fetchErr } = await supabase
+      .from('agents')
+      .select('*')
+      .eq('ticker', req.params.ticker)
+      .single();
+    if (fetchErr || !agent) return res.status(404).json({ error: 'Agent not found' });
+    if (agent.created_by !== userId) {
+      return res.status(403).json({ error: 'Not authorized to edit this agent' });
+    }
+
+    const updates = { updated_at: new Date() };
+    if (tradingStrategy !== undefined) {
+      updates.trading_strategy = String(tradingStrategy).slice(0, 200);
+    }
+    if (creatorTwitter !== undefined) {
+      let t = String(creatorTwitter).trim();
+      if (t && !t.startsWith('@')) t = '@' + t;
+      updates.creator_twitter = t || null;
+    }
+
+    const { data, error } = await supabase
+      .from('agents')
+      .update(updates)
+      .eq('ticker', req.params.ticker)
+      .select()
+      .single();
+    if (error) return res.status(500).json({ error: error.message });
+
+    io.emit('agent-updated', data);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Get trades
 app.get('/api/trades', async (req, res) => {
   const limit = req.query.limit || 50;
@@ -266,32 +307,41 @@ app.post('/api/agents/register', async (req, res) => {
     if (existing) {
       return res.status(409).json({ error: `Ticker ${cleanTicker} is already taken` });
     }
-    if (!txHash || !userWallet) {
-      return res.status(400).json({ error: 'Transaction required to deploy agent' })
-    }
-    const { data: existingTx } = await supabase
-      .from('agents').select('ticker').eq('deploy_tx_hash', txHash).maybeSingle()
-    if (existingTx) {
-      return res.status(400).json({ error: 'Transaction already used' })
-    }
-    const { ethers } = require('ethers')
-    const provider = new ethers.JsonRpcProvider('https://mainnet.base.org')
-    const USDC_CONTRACT_ADDR = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
-    const tx = await provider.getTransaction(txHash)
-    const txReceipt = await provider.getTransactionReceipt(txHash)
-    if (!tx || !txReceipt || txReceipt.status !== 1) {
-      return res.status(400).json({ error: 'Transaction not confirmed on chain' })
-    }
-    if (tx.to?.toLowerCase() !== USDC_CONTRACT_ADDR.toLowerCase()) {
-      return res.status(400).json({ error: 'Invalid transaction — must be USDC transfer' })
-    }
-    const iface = new ethers.Interface(['function transfer(address to, uint256 amount)'])
-    const decoded = iface.parseTransaction({ data: tx.data })
-    if (decoded?.args[0]?.toLowerCase() !== process.env.HOUSE_WALLET_ADDRESS?.toLowerCase()) {
-      return res.status(400).json({ error: 'USDC not sent to house wallet' })
-    }
-    if (parseFloat(ethers.formatUnits(decoded?.args[1], 6)) < 10) {
-      return res.status(400).json({ error: 'Insufficient — $10 USDC required' })
+
+    // Check the admin "free agent registration" toggle
+    const { data: settingsRow } = await supabase
+      .from('settings').select('free_agent_registration').eq('id', 1).maybeSingle()
+    const freeMode = !!(settingsRow?.free_agent_registration)
+
+    if (!freeMode) {
+      // Paid mode: $10 USDC deploy fee — verify on-chain
+      if (!txHash || !userWallet) {
+        return res.status(400).json({ error: 'Transaction required to deploy agent' })
+      }
+      const { data: existingTx } = await supabase
+        .from('agents').select('ticker').eq('deploy_tx_hash', txHash).maybeSingle()
+      if (existingTx) {
+        return res.status(400).json({ error: 'Transaction already used' })
+      }
+      const { ethers } = require('ethers')
+      const provider = new ethers.JsonRpcProvider('https://mainnet.base.org')
+      const USDC_CONTRACT_ADDR = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
+      const tx = await provider.getTransaction(txHash)
+      const txReceipt = await provider.getTransactionReceipt(txHash)
+      if (!tx || !txReceipt || txReceipt.status !== 1) {
+        return res.status(400).json({ error: 'Transaction not confirmed on chain' })
+      }
+      if (tx.to?.toLowerCase() !== USDC_CONTRACT_ADDR.toLowerCase()) {
+        return res.status(400).json({ error: 'Invalid transaction — must be USDC transfer' })
+      }
+      const iface = new ethers.Interface(['function transfer(address to, uint256 amount)'])
+      const decoded = iface.parseTransaction({ data: tx.data })
+      if (decoded?.args[0]?.toLowerCase() !== process.env.HOUSE_WALLET_ADDRESS?.toLowerCase()) {
+        return res.status(400).json({ error: 'USDC not sent to house wallet' })
+      }
+      if (parseFloat(ethers.formatUnits(decoded?.args[1], 6)) < 10) {
+        return res.status(400).json({ error: 'Insufficient — $10 USDC required' })
+      }
     }
 
     const fullName = `Agent ${cleanName.charAt(0) + cleanName.slice(1).toLowerCase()}`;
@@ -313,8 +363,8 @@ app.post('/api/agents/register', async (req, res) => {
       creator_name: creatorName,
       creator_twitter: creatorTwitter,
       avatar_url: avatarUrl,
-      deploy_tx_hash: txHash,
-      deploy_wallet:  userWallet,
+      deploy_tx_hash: freeMode ? null : txHash,
+      deploy_wallet:  freeMode ? (userWallet || null) : userWallet,
     };
 
     console.log('Agent insert data:', JSON.stringify(insertData, null, 2));

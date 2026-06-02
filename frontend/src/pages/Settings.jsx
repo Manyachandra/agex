@@ -1,7 +1,12 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import axios from 'axios'
-import { Save, RefreshCw, AlertTriangle, Info, CheckCircle, XCircle, MessageSquare, Zap, ShieldOff } from 'lucide-react'
+import {
+  Save, RefreshCw, AlertTriangle, Info, CheckCircle, XCircle,
+  MessageSquare, Zap, UserPlus, Loader, Settings as SettingsIcon, LogIn
+} from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import AgentAvatar from '../components/AgentAvatar'
 
 const API = import.meta.env.VITE_API_URL
 
@@ -28,6 +33,15 @@ const AGENT_COLORS = {
   BRAHMA: '#f5a623', KIRA: '#00b87a',
 }
 
+const STATUS_BADGES = {
+  pending_approval: { label: 'Pending', cls: 'badge-gold' },
+  active: { label: 'Active', cls: 'badge-green' },
+  dominant: { label: 'Dominant', cls: 'badge-green' },
+  rejected: { label: 'Rejected', cls: 'badge-red' },
+  suspended: { label: 'Suspended', cls: 'badge-gold' },
+  bankrupt: { label: 'Bankrupt', cls: 'badge-red' },
+}
+
 function getColor(ticker) {
   return AGENT_COLORS[ticker] || `hsl(${[...ticker].reduce((h, c) => h + c.charCodeAt(0), 0) % 360}, 60%, 50%)`
 }
@@ -47,9 +61,194 @@ const DEFAULTS = {
   allow_agent_suggestions: true, dashboard_refresh_rate: 30,
 }
 
-export default function Settings() {
-  const { profile } = useAuth()
-  const isAdmin = profile?.role === 'admin'
+// ── My Agents Editor (non-admin view) ──────────────────────────────────────
+function MyAgentsEditor({ userId }) {
+  const [agents, setAgents] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [drafts, setDrafts] = useState({}) // { [ticker]: { tradingStrategy, creatorTwitter } }
+  const [statusByTicker, setStatusByTicker] = useState({}) // { [ticker]: 'saving' | 'saved' | { error } }
+
+  useEffect(() => {
+    let cancelled = false
+    axios.get(`${API}/api/admin/my-agents/${userId}`)
+      .then(r => {
+        if (cancelled) return
+        const list = r.data || []
+        setAgents(list)
+        const seed = {}
+        list.forEach(a => {
+          seed[a.ticker] = {
+            tradingStrategy: a.trading_strategy || '',
+            creatorTwitter: a.creator_twitter || '',
+          }
+        })
+        setDrafts(seed)
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [userId])
+
+  const updateDraft = (ticker, field, value) => {
+    if (field === 'tradingStrategy') value = String(value).slice(0, 200)
+    setDrafts(prev => ({ ...prev, [ticker]: { ...prev[ticker], [field]: value } }))
+    setStatusByTicker(prev => ({ ...prev, [ticker]: null }))
+  }
+
+  const isDirty = (a) => {
+    const d = drafts[a.ticker] || {}
+    return (
+      (d.tradingStrategy || '') !== (a.trading_strategy || '') ||
+      (d.creatorTwitter || '') !== (a.creator_twitter || '')
+    )
+  }
+
+  const save = async (a) => {
+    const d = drafts[a.ticker]
+    if (!d) return
+    setStatusByTicker(prev => ({ ...prev, [a.ticker]: 'saving' }))
+    try {
+      const r = await axios.put(`${API}/api/agents/${a.ticker}`, {
+        userId,
+        tradingStrategy: d.tradingStrategy,
+        creatorTwitter: d.creatorTwitter,
+      })
+      setAgents(prev => prev.map(x => x.ticker === a.ticker ? r.data : x))
+      setStatusByTicker(prev => ({ ...prev, [a.ticker]: 'saved' }))
+      setTimeout(() => {
+        setStatusByTicker(prev => ({ ...prev, [a.ticker]: null }))
+      }, 1800)
+    } catch (err) {
+      setStatusByTicker(prev => ({
+        ...prev,
+        [a.ticker]: { error: err.response?.data?.error || 'Failed to save' },
+      }))
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="fade-in" style={{ textAlign: 'center', padding: 60, color: 'var(--text3)' }}>
+        Loading your agents...
+      </div>
+    )
+  }
+
+  return (
+    <div className="fade-in">
+      <div className="page-header">
+        <div className="page-title">Settings</div>
+        <div className="page-subtitle">Edit your deployed agents</div>
+      </div>
+
+      {agents.length === 0 && (
+        <div className="card" style={{ textAlign: 'center', padding: 32 }}>
+          <UserPlus size={28} style={{ marginBottom: 10, color: 'var(--text3)' }} />
+          <div style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: 6 }}>
+            You haven't deployed any agents yet
+          </div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text3)', marginBottom: 16 }}>
+            Register an agent to get started.
+          </div>
+          <Link to="/register" className="btn btn-primary"
+            style={{ display: 'inline-flex', padding: '8px 20px', fontSize: '0.78rem', textDecoration: 'none' }}>
+            <UserPlus size={13} style={{ marginRight: 6 }} /> Register Agent
+          </Link>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {agents.map(a => {
+          const sb = STATUS_BADGES[a.status] || { label: a.status, cls: 'badge-gray' }
+          const draft = drafts[a.ticker] || { tradingStrategy: '', creatorTwitter: '' }
+          const status = statusByTicker[a.ticker]
+          const dirty = isDirty(a)
+          const saving = status === 'saving'
+          const saved = status === 'saved'
+          const errorMsg = status && typeof status === 'object' ? status.error : null
+
+          return (
+            <div key={a.ticker} className="card">
+              <div className="card-header" style={{ alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+                  <AgentAvatar ticker={a.ticker} avatarUrl={a.avatar_url} size="md" />
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: '0.95rem' }}>
+                      {a.full_name}
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 2 }}>
+                      <span className="badge badge-green" style={{ fontSize: '0.6rem' }}>${a.ticker}</span>
+                      <span className={`badge ${sb.cls}`} style={{ fontSize: '0.6rem' }}>{sb.label}</span>
+                    </div>
+                  </div>
+                </div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text3)' }}>
+                  Style: <strong style={{ color: 'var(--text2)' }}>{a.style}</strong>
+                </div>
+              </div>
+
+              <div className="register-field" style={{ marginTop: 8 }}>
+                <label className="register-label">Trading Strategy</label>
+                <textarea
+                  className="register-input register-textarea"
+                  placeholder="Describe how your agent should behave in the market..."
+                  value={draft.tradingStrategy}
+                  onChange={e => updateDraft(a.ticker, 'tradingStrategy', e.target.value)}
+                  maxLength={200}
+                  rows={3}
+                />
+                <div className="register-hint">{(draft.tradingStrategy || '').length}/200</div>
+              </div>
+
+              <div className="register-field">
+                <label className="register-label">
+                  Creator Twitter <span style={{ color: 'var(--text3)', fontWeight: 400 }}>(optional)</span>
+                </label>
+                <input
+                  className="register-input"
+                  type="text"
+                  placeholder="@handle"
+                  value={draft.creatorTwitter}
+                  onChange={e => updateDraft(a.ticker, 'creatorTwitter', e.target.value)}
+                />
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => save(a)}
+                  disabled={!dirty || saving}
+                  style={{
+                    padding: '8px 18px', fontSize: '0.78rem', gap: 6,
+                    opacity: !dirty || saving ? 0.5 : 1,
+                    cursor: !dirty || saving ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {saving ? <Loader size={13} className="auth-spinner" /> : <Save size={13} />}
+                  {saving ? 'Saving...' : 'Save Changes'}
+                </button>
+
+                {saved && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--green)', fontSize: '0.72rem' }}>
+                    <CheckCircle size={13} /> Saved
+                  </div>
+                )}
+                {errorMsg && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--red)', fontSize: '0.72rem' }}>
+                    <XCircle size={13} /> {errorMsg}
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ── Admin Settings (existing platform configuration view) ──────────────────
+function AdminSettingsView() {
   const [settings, setSettings] = useState(DEFAULTS)
   const [suggestions, setSuggestions] = useState([])
   const [history, setHistory] = useState([])
@@ -127,15 +326,6 @@ export default function Settings() {
         <div className="page-subtitle">Exchange configuration, agent suggestions, and parameters</div>
       </div>
 
-      {!isAdmin && (
-        <div className="card" style={{ marginBottom: 20, background: '#fffbe6', border: '1px solid #ffe58f', display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px' }}>
-          <ShieldOff size={16} color="#d48806" />
-          <span style={{ fontSize: '0.78rem', color: '#7c6a0a' }}>
-            You are viewing settings in read-only mode. Admin access is required to make changes.
-          </span>
-        </div>
-      )}
-
       {/* PENDING SUGGESTIONS */}
       <div className="card" style={{ marginBottom: 20, border: suggestions.length > 0 ? '1px solid var(--gold)' : undefined }}>
         <div className="card-header">
@@ -146,10 +336,8 @@ export default function Settings() {
             )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ fontSize: '0.68rem', color: 'var(--text3)' }}>
-              Allow suggestions
-            </span>
-            <button onClick={toggleSuggestions} disabled={!isAdmin} style={{
+            <span style={{ fontSize: '0.68rem', color: 'var(--text3)' }}>Allow suggestions</span>
+            <button onClick={toggleSuggestions} style={{
               background: settings.allow_agent_suggestions ? 'var(--green)' : 'var(--border)',
               width: 44, height: 24, borderRadius: 12, border: 'none',
               cursor: 'pointer', position: 'relative', transition: 'background 0.2s'
@@ -226,7 +414,7 @@ export default function Settings() {
                 <button
                   className="btn"
                   onClick={() => handleApprove(s.id)}
-                  disabled={!isAdmin || !!actionLoading[s.id]}
+                  disabled={!!actionLoading[s.id]}
                   style={{
                     background: 'var(--green)', color: 'white',
                     fontSize: '0.68rem', padding: '6px 14px', gap: 5,
@@ -239,7 +427,7 @@ export default function Settings() {
                 <button
                   className="btn btn-outline"
                   onClick={() => handleReject(s.id)}
-                  disabled={!isAdmin || !!actionLoading[s.id]}
+                  disabled={!!actionLoading[s.id]}
                   style={{
                     borderColor: 'var(--red)', color: 'var(--red)',
                     fontSize: '0.68rem', padding: '6px 14px', gap: 5,
@@ -279,7 +467,6 @@ export default function Settings() {
                 <input type="range" min={s.min} max={s.max}
                   value={settings[s.key] || 0}
                   onChange={e => setSettings({ ...settings, [s.key]: parseInt(e.target.value) })}
-                  disabled={!isAdmin}
                   style={{ width: '100%', accentColor: 'var(--green)' }}
                 />
               </div>
@@ -306,7 +493,6 @@ export default function Settings() {
                 <input type="range" min={s.min} max={s.max} step={s.step || 1}
                   value={settings[s.key] || 0}
                   onChange={e => setSettings({ ...settings, [s.key]: parseFloat(e.target.value) })}
-                  disabled={!isAdmin}
                   style={{ width: '100%', accentColor: 'var(--green)' }}
                 />
               </div>
@@ -402,18 +588,61 @@ export default function Settings() {
         </div>
       </div>
 
-      {!!isAdmin && (
-        <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-          <button className="btn btn-outline" onClick={handleReset}>
-            <RefreshCw size={14} style={{ marginRight: 6 }} />
-            Reset Defaults
-          </button>
-          <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-            <Save size={14} style={{ marginRight: 6 }} />
-            {saved ? '✓ Saved!' : saving ? 'Saving...' : 'Save Settings'}
-          </button>
-        </div>
-      )}
+      <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+        <button className="btn btn-outline" onClick={handleReset}>
+          <RefreshCw size={14} style={{ marginRight: 6 }} />
+          Reset Defaults
+        </button>
+        <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+          <Save size={14} style={{ marginRight: 6 }} />
+          {saved ? '✓ Saved!' : saving ? 'Saving...' : 'Save Settings'}
+        </button>
+      </div>
     </div>
   )
+}
+
+// ── Main Settings Page (routes by role) ────────────────────────────────────
+export default function Settings() {
+  const { user, profile, loading } = useAuth()
+
+  if (loading) {
+    return (
+      <div className="fade-in" style={{ textAlign: 'center', padding: 60, color: 'var(--text3)' }}>
+        Loading...
+      </div>
+    )
+  }
+
+  if (!user) {
+    return (
+      <div className="fade-in">
+        <div className="page-header">
+          <div className="page-title">Settings</div>
+          <div className="page-subtitle">Sign in to manage your agents</div>
+        </div>
+        <div className="card" style={{ textAlign: 'center', padding: 32 }}>
+          <SettingsIcon size={28} style={{ marginBottom: 10, color: 'var(--text3)' }} />
+          <div style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: 6 }}>
+            Account Required
+          </div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text3)', marginBottom: 16 }}>
+            Please sign in to view and edit your deployed agents.
+          </div>
+          <Link to="/login" className="btn btn-primary"
+            style={{ display: 'inline-flex', padding: '8px 20px', fontSize: '0.78rem', textDecoration: 'none' }}>
+            <LogIn size={13} style={{ marginRight: 6 }} /> Login
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
+  const isAdmin = profile?.role === 'admin'
+
+  if (!isAdmin) {
+    return <MyAgentsEditor userId={user.id} />
+  }
+
+  return <AdminSettingsView />
 }

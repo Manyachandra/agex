@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Trophy, Users, ArrowLeftRight,
   Landmark, Activity, Settings, ChevronLeft,
   ChevronRight, UserPlus, MessageSquare, LogOut, LogIn,
-  User, Shield, Eye, UserCog, Dice5
+  User, Shield, Eye, UserCog, Dice5, Sliders
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import axios from 'axios'
@@ -29,6 +29,7 @@ const adminItems = [
   { path: '/admin/overview', icon: Eye, label: 'Overview', section: 'admin' },
   { path: '/admin/agents', icon: Shield, label: 'Manage Agents', section: 'admin' },
   { path: '/admin/users', icon: UserCog, label: 'Manage Users', section: 'admin' },
+  { path: '/admin/settings', icon: Sliders, label: 'Platform Settings', section: 'admin' },
 ]
 
 const sections = { main: 'EXCHANGE', market: 'MARKET', social: 'SOCIAL', system: 'SYSTEM', admin: 'ADMIN' }

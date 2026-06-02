@@ -53,8 +53,17 @@ export default function Register() {
   const [showLoginModal, setShowLoginModal] = useState(false)
   const [avatarFile, setAvatarFile] = useState(null)
   const [avatarPreview, setAvatarPreview] = useState(null)
+  const [freeMode, setFreeMode] = useState(false)
   const fileInputRef = useRef(null)
   const tickerTimeout = useRef(null)
+
+  useEffect(() => {
+    let cancelled = false
+    axios.get(`${API}/api/settings`)
+      .then(r => { if (!cancelled) setFreeMode(!!r.data?.free_agent_registration) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
 
   const handleAvatarSelect = (e) => {
     const file = e.target.files?.[0]
@@ -107,6 +116,15 @@ export default function Register() {
     e.preventDefault()
     if (!canSubmit) return
     if (!user) { setShowLoginModal(true); return }
+
+    // Free mode → skip wallet + on-chain payment
+    if (freeMode) {
+      setSubmitting(true)
+      setError(null)
+      await submitAgent(null)
+      return
+    }
+
     if (!isConnected) { setError('Please connect your wallet to deploy'); return }
     if (!isOnBase) { setError('Please switch to Base network'); return }
     setSubmitting(true)
@@ -145,9 +163,15 @@ export default function Register() {
           avatarUrl = urlData?.publicUrl || null
         }
       }
-      const payload = { ...form, createdBy: user.id, avatarUrl, txHash, userWallet: address }
+      const payload = {
+        ...form,
+        createdBy: user.id,
+        avatarUrl,
+        txHash: txHash || null,
+        userWallet: address || null,
+      }
       const r = await axios.post(`${API}/api/agents/register`, payload)
-      setSuccess({ ...r.data, txHash })
+      setSuccess({ ...r.data, txHash, freeMode })
     } catch (err) {
       setError(err.response?.data?.error || 'Registration failed. Try again.')
     }
@@ -177,9 +201,18 @@ export default function Register() {
               </div>
               <div style={{ background: 'var(--gold-bg)', borderRadius: 10, padding: 16, marginBottom: 16 }}>
                 <div style={{ fontSize: '0.78rem', color: '#7c6a0a', lineHeight: 1.7 }}>
-                  ✅ $10 USDC transaction confirmed. Your agent is pending agent approval.
-                  Once approved it will join the next exchange cycle.
-                  If rejected, your $10 USDC will be refunded to your wallet.
+                  {success?.freeMode ? (
+                    <>
+                      ✅ Agent submitted for free. Your agent is pending admin approval.
+                      Once approved it will join the next exchange cycle.
+                    </>
+                  ) : (
+                    <>
+                      ✅ $10 USDC transaction confirmed. Your agent is pending agent approval.
+                      Once approved it will join the next exchange cycle.
+                      If rejected, your $10 USDC will be refunded to your wallet.
+                    </>
+                  )}
                 </div>
               </div>
               {success?.txHash && (
@@ -353,7 +386,7 @@ export default function Register() {
               </div>
             </div>
 
-            {isConnected && !isOnBase && (
+            {!freeMode && isConnected && !isOnBase && (
               <div style={{ background: 'rgba(255,100,0,0.1)', border: '1px solid rgba(255,100,0,0.3)', borderRadius: 8, padding: '8px 12px', fontSize: '0.72rem', color: '#ff8844', marginBottom: 12 }}>
                 ⚠️ Switch to Base network to deploy
               </div>
@@ -367,7 +400,7 @@ export default function Register() {
             <button type="submit" className="btn btn-primary" disabled={!canSubmit}
               style={{ width: '100%', justifyContent: 'center', padding: '14px 0', marginTop: 8, fontSize: '0.8rem', gap: 8, opacity: canSubmit ? 1 : 0.5, cursor: canSubmit ? 'pointer' : 'not-allowed' }}>
               {submitting || isConfirming ? <Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Zap size={14} />}
-              {txStatus || (submitting || isConfirming ? 'Processing...' : 'Deploy Agent — $10 USDC')}
+              {txStatus || (submitting || isConfirming ? 'Processing...' : (freeMode ? 'Deploy Agent — Free' : 'Deploy Agent — $10 USDC'))}
             </button>
           </form>
 

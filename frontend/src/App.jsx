@@ -21,6 +21,7 @@ import Profile from './pages/Profile'
 import ManageAgents from './pages/admin/ManageAgents'
 import ManageUsers from './pages/admin/ManageUsers'
 import AdminOverview from './pages/admin/AdminOverview'
+import AdminSettings from './pages/admin/AdminSettings'
 import Betting from './pages/Betting'
 import { AuthGuard, AdminGuard } from './components/AuthGuard'
 import './App.css'
@@ -122,6 +123,7 @@ function AppLayout() {
             <Route path="/admin/overview" element={<AdminGuard><AdminOverview /></AdminGuard>} />
             <Route path="/admin/agents" element={<AdminGuard><ManageAgents /></AdminGuard>} />
             <Route path="/admin/users" element={<AdminGuard><ManageUsers /></AdminGuard>} />
+            <Route path="/admin/settings" element={<AdminGuard><AdminSettings /></AdminGuard>} />
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
             <Route path="/auth/callback" element={<AuthCallback />} />
