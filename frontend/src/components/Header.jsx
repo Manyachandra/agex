@@ -5,7 +5,7 @@ import axios from 'axios'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 
 const API = import.meta.env.VITE_API_URL
-const OPENCLAW_ACTIVE_THRESHOLD_MS = 15 * 60 * 1000 // 15 minutes
+const HERMES_ACTIVE_THRESHOLD_MS = 15 * 60 * 1000 // 15 minutes
 
 const pageTitles = {
   '/': { title: 'Dashboard', subtitle: 'Live exchange overview' },
@@ -22,7 +22,7 @@ const pageTitles = {
 export default function Header({ connected, lastUpdate, onMobileOpen }) {
   const location = useLocation()
   const [time, setTime] = useState(new Date())
-  const [openClawActive, setOpenClawActive] = useState(false) // true = active (< 15 min), false = idle
+  const [hermesActive, setHermesActive] = useState(false) // true = active (< 15 min), false = idle
   const page = pageTitles[location.pathname] || pageTitles['/']
 
   useEffect(() => {
@@ -31,20 +31,20 @@ export default function Header({ connected, lastUpdate, onMobileOpen }) {
   }, [])
 
   useEffect(() => {
-    const checkOpenClaw = () => {
+    const checkHermes = () => {
       axios.get(`${API}/api/agents`).then((r) => {
         const agents = r.data || []
         const dates = agents.map((a) => a.last_cycle_at).filter(Boolean)
         if (dates.length === 0) {
-          setOpenClawActive(false)
+          setHermesActive(false)
           return
         }
         const latest = Math.max(...dates.map((d) => new Date(d.endsWith('Z') || d.includes('+') ? d : d + 'Z').getTime()))
-        setOpenClawActive(Date.now() - latest < OPENCLAW_ACTIVE_THRESHOLD_MS)
-      }).catch(() => setOpenClawActive(false))
+        setHermesActive(Date.now() - latest < HERMES_ACTIVE_THRESHOLD_MS)
+      }).catch(() => setHermesActive(false))
     }
-    checkOpenClaw()
-    const interval = setInterval(checkOpenClaw, 60000)
+    checkHermes()
+    const interval = setInterval(checkHermes, 60000)
     return () => clearInterval(interval)
   }, [])
 
@@ -60,10 +60,10 @@ export default function Header({ connected, lastUpdate, onMobileOpen }) {
         </div>
       </div>
       <div className="header-right">
-      <div className={`openclaw-indicator ${openClawActive ? 'openclaw-indicator--active' : 'openclaw-indicator--idle'}`}>
-  <span className={`openclaw-dot ${openClawActive ? 'openclaw-dot--active' : 'openclaw-dot--idle'}`} />
-  <span className="openclaw-emoji">🦞</span>
-  <span className="openclaw-label">{openClawActive ? 'OpenClaw Active' : 'OpenClaw Idle'}</span>
+      <div className={`hermes-indicator ${hermesActive ? 'hermes-indicator--active' : 'hermes-indicator--idle'}`}>
+  <span className={`hermes-dot ${hermesActive ? 'hermes-dot--active' : 'hermes-dot--idle'}`} />
+  <span className="hermes-emoji">📡</span>
+  <span className="hermes-label">{hermesActive ? 'Hermes Active' : 'Hermes Idle'}</span>
 </div>
 
         <ConnectButton.Custom>
