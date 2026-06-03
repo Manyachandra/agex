@@ -26,10 +26,7 @@ export default function Ticker({ agents: liveAgents }) {
       price: parseFloat(a.price).toFixed(4),
       change: ((parseFloat(a.price) - 1.0) / 1.0 * 100).toFixed(2),
       status: a.status
-    })),
-    { type: 'stat', label: '🔄 TRADES', value: '' },
-    { type: 'stat', label: '⚡ AUTONOMOUS', value: '' },
-    { type: 'stat', label: '🤖 AI EXCHANGE', value: '' },
+    }))
   ]
 
   return (
