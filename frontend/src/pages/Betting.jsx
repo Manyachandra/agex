@@ -15,6 +15,8 @@ import {
   Loader, ExternalLink, Info, CheckCircle, XCircle
 } from 'lucide-react'
 
+import { asArray } from '../lib/api'
+
 const API = import.meta.env.VITE_API_URL
 const HOUSE_WALLET = '0x518E341C981D9C64E4c8292fF6C3E8F5055ba256'
 
@@ -203,7 +205,7 @@ export default function Betting() {
   const fetchAgents = useCallback(async () => {
     try {
       const { data } = await axios.get(`${API}/api/agents`)
-      setAgents((data || []).filter(a => ['active', 'dominant'].includes(a.status)))
+      setAgents(asArray(data).filter(a => ['active', 'dominant'].includes(a.status)))
     } catch {}
   }, [])
 

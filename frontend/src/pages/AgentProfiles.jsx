@@ -5,6 +5,7 @@ import { TrendingUp, TrendingDown, Zap, Wallet, Target } from 'lucide-react'
 import AgentAvatar from '../components/AgentAvatar'
 import { ScrollReveal, CountUp } from '../components/ScrollReveal'
 import { usePageFocus } from '../hooks/usePageFocus'
+import { asArray } from '../lib/api'
 
 const API = import.meta.env.VITE_API_URL
 const AGENT_COLORS = {
@@ -60,7 +61,7 @@ export default function AgentProfiles() {
 
   const fetchAgents = () => {
     axios.get(`${API}/api/agents`).then(async r => {
-      const data = r.data || []
+      const data = asArray(r.data)
       setAgents(data)
       setSelected(prev => prev ?? data[0]?.ticker)
       const h = {}
@@ -79,7 +80,7 @@ export default function AgentProfiles() {
 
   useEffect(() => {
     const interval = setInterval(() => {
-      axios.get(`${API}/api/agents`).then(r => setAgents(r.data || [])).catch(() => {})
+      axios.get(`${API}/api/agents`).then(r => setAgents(asArray(r.data))).catch(() => {})
     }, 15000)
     return () => clearInterval(interval)
   }, [])

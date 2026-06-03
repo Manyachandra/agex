@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import axios from 'axios'
 import AgentAvatar from './AgentAvatar'
+import { asArray } from '../lib/api'
 
 const API = import.meta.env.VITE_API_URL
 
@@ -8,10 +9,12 @@ export default function Ticker({ agents: liveAgents }) {
   const [agents, setAgents] = useState([])
 
   useEffect(() => {
-    if (liveAgents && liveAgents.length > 0) {
+    if (Array.isArray(liveAgents) && liveAgents.length > 0) {
       setAgents(liveAgents)
     } else {
-      axios.get(`${API}/api/agents`).then(r => setAgents(r.data))
+      axios.get(`${API}/api/agents`)
+        .then(r => setAgents(asArray(r.data)))
+        .catch(() => setAgents([]))
     }
   }, [liveAgents])
 

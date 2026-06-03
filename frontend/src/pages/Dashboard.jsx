@@ -4,6 +4,8 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart,
 import { TrendingUp, TrendingDown, DollarSign, ArrowLeftRight, Radio, Users, AlertTriangle, Crown, X } from 'lucide-react'
 import AgentAvatar from '../components/AgentAvatar'
 import { ScrollReveal, CountUp } from '../components/ScrollReveal'
+import { asArray } from '../lib/api'
+
 const API = import.meta.env.VITE_API_URL
 
 const AGENT_COLORS = {
@@ -51,11 +53,12 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
         axios.get(`${API}/api/activity?limit=8`).catch(() => ({ data: [] })),
         axios.get(`${API}/api/stats`).catch(() => ({ data: null }))
       ])
-      setAgents(ag.data || [])
+      const agentList = asArray(ag.data)
+      setAgents(agentList)
       setTreasury(tr.data)
-      setActivity(ac.data || [])
+      setActivity(asArray(ac.data))
       setStats(st.data)
-      fetchPriceHistory(ag.data)
+      fetchPriceHistory(agentList)
     } catch (err) {
       console.error('Dashboard fetch error:', err)
     }
@@ -67,7 +70,8 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
       axios.get(`${API}/api/agents`).catch(() => ({ data: [] })),
       axios.get(`${API}/api/treasury`).catch(() => ({ data: null }))
     ]).then(([ag, tr]) => {
-      if (ag.data?.length) setAgents(ag.data)
+      const quick = asArray(ag.data)
+      if (quick.length) setAgents(quick)
       if (tr.data) setTreasury(tr.data)
     })
     // Full load runs in parallel
@@ -76,13 +80,13 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
 
   useEffect(() => {
     const activityInterval = setInterval(() => {
-      axios.get(`${API}/api/activity?limit=8`).then(r => setActivity(r.data || [])).catch(() => {})
+      axios.get(`${API}/api/activity?limit=8`).then(r => setActivity(asArray(r.data))).catch(() => {})
     }, 15000)
     return () => clearInterval(activityInterval)
   }, [])
 
   useEffect(() => {
-    if (liveAgents?.length) setAgents(liveAgents)
+    if (Array.isArray(liveAgents) && liveAgents.length) setAgents(liveAgents)
     if (liveTreasury) setTreasury(liveTreasury)
   }, [liveAgents, liveTreasury])
 

@@ -6,6 +6,8 @@ import AgentAvatar from '../components/AgentAvatar'
 import { useAuth } from '../context/AuthContext'
 import { ScrollReveal } from '../components/ScrollReveal'
 
+import { asArray } from '../lib/api'
+
 const API = import.meta.env.VITE_API_URL
 
 const EVENT_LABELS = {
@@ -213,7 +215,7 @@ export default function SocialFeed() {
   }, [lastUpdated])
 
   useEffect(() => {
-    axios.get(`${API}/api/agents`).then(r => setAgents(r.data || [])).catch(() => { })
+    axios.get(`${API}/api/agents`).then(r => setAgents(asArray(r.data))).catch(() => { })
     axios.get(`${API}/api/social/trending`).then(r => setTrending(r.data)).catch(() => { })
   }, [])
 

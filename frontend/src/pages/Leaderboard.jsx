@@ -4,6 +4,8 @@ import { TrendingUp, TrendingDown, X } from 'lucide-react'
 import AgentAvatar from '../components/AgentAvatar'
 import { ScrollReveal } from '../components/ScrollReveal'
 
+import { asArray } from '../lib/api'
+
 const API = import.meta.env.VITE_API_URL
 
 function agentColor(ticker) {
@@ -21,7 +23,7 @@ export default function Leaderboard() {
 
   const fetchAgents = () => {
     axios.get(`${API}/api/agents`)
-      .then(r => { setAgents(r.data || []); setLoading(false) })
+      .then(r => { setAgents(asArray(r.data)); setLoading(false) })
       .catch(() => { setAgents([]); setLoading(false) })
   }
 

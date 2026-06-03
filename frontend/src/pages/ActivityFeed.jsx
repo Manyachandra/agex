@@ -5,6 +5,8 @@ import AgentAvatar from '../components/AgentAvatar'
 import { ScrollReveal, CountUp } from '../components/ScrollReveal'
 import { usePageFocus } from '../hooks/usePageFocus'
 
+import { asArray } from '../lib/api'
+
 const API = import.meta.env.VITE_API_URL
 
 function agentColor(ticker) {
@@ -38,12 +40,12 @@ export default function ActivityFeed() {
 
   const fetchActivity = () => {
     axios.get(`${API}/api/activity?limit=200`)
-      .then(r => setActivity(r.data || []))
+      .then(r => setActivity(asArray(r.data)))
       .catch(() => {})
   }
 
   useEffect(() => {
-    axios.get(`${API}/api/agents`).then(r => setAgents(r.data || [])).catch(() => {})
+    axios.get(`${API}/api/agents`).then(r => setAgents(asArray(r.data))).catch(() => {})
     fetchActivity()
     const interval = setInterval(fetchActivity, 15000)
     return () => clearInterval(interval)

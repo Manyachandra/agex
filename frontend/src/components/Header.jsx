@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom'
 import { Menu, Wifi, WifiOff, RefreshCw, Clock, Wallet, AlertTriangle } from 'lucide-react'
 import axios from 'axios'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
+import { asArray } from '../lib/api'
 
 const API = import.meta.env.VITE_API_URL
 const HERMES_ACTIVE_THRESHOLD_MS = 15 * 60 * 1000 // 15 minutes
@@ -33,7 +34,7 @@ export default function Header({ connected, lastUpdate, onMobileOpen }) {
   useEffect(() => {
     const checkHermes = () => {
       axios.get(`${API}/api/agents`).then((r) => {
-        const agents = r.data || []
+        const agents = asArray(r.data)
         const dates = agents.map((a) => a.last_cycle_at).filter(Boolean)
         if (dates.length === 0) {
           setHermesActive(false)

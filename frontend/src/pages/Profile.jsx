@@ -9,6 +9,8 @@ import { useAccount, useChainId, useSendTransaction, useWaitForTransactionReceip
 import { parseUnits } from 'viem'
 import { base } from 'wagmi/chains'
 
+import { asArray } from '../lib/api'
+
 const API = import.meta.env.VITE_API_URL
 const USDC_CONTRACT = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
 const HOUSE_WALLET = import.meta.env.VITE_HOUSE_WALLET || '0x518E341C981D9C64E4c8292fF6C3E8F5055ba256'
@@ -429,7 +431,7 @@ export default function Profile() {
       axios.get(`${API}/api/activity`).catch(() => ({ data: [] })),
       axios.get(`${API}/api/funds/history/user/${user.id}`).catch(() => ({ data: [] })),
     ])
-    setAgents(a.data || [])
+    setAgents(asArray(a.data))
     const tickers = (a.data || []).map(ag => ag.ticker)
     const myActivity = (act.data || []).filter(ev => tickers.includes(ev.agent_ticker)).slice(0, 50)
     setActivity(myActivity)

@@ -24,6 +24,7 @@ import AdminOverview from './pages/admin/AdminOverview'
 import AdminSettings from './pages/admin/AdminSettings'
 import Betting from './pages/Betting'
 import { AuthGuard, AdminGuard } from './components/AuthGuard'
+import { asArray } from './lib/api'
 import './App.css'
 
 function AppLayout() {
@@ -39,8 +40,8 @@ function AppLayout() {
     const onConnect = () => setConnected(true)
     const onDisconnect = () => setConnected(false)
     const onUpdate = async (data) => {
-      if (data.agents && data.treasury != null) {
-        setAgents(data.agents)
+      if (data.agents != null && data.treasury != null) {
+        setAgents(asArray(data.agents))
         setTreasury(data.treasury)
         setLastUpdate(new Date())
       } else {

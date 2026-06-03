@@ -8,6 +8,8 @@ import {
 import { useAuth } from '../context/AuthContext'
 import AgentAvatar from '../components/AgentAvatar'
 
+import { asArray } from '../lib/api'
+
 const API = import.meta.env.VITE_API_URL
 
 const PARAM_LABELS = {
@@ -73,7 +75,7 @@ function MyAgentsEditor({ userId }) {
     axios.get(`${API}/api/admin/my-agents/${userId}`)
       .then(r => {
         if (cancelled) return
-        const list = r.data || []
+        const list = asArray(r.data)
         setAgents(list)
         const seed = {}
         list.forEach(a => {
