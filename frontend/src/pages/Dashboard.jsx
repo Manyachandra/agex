@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import axios from 'axios'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts'
-import { TrendingUp, TrendingDown, DollarSign, ArrowLeftRight, Zap, Users, AlertTriangle, Crown, X } from 'lucide-react'
+import { TrendingUp, TrendingDown, DollarSign, ArrowLeftRight, Radio, Users, AlertTriangle, Crown, X } from 'lucide-react'
 import AgentAvatar from '../components/AgentAvatar'
 import { ScrollReveal, CountUp } from '../components/ScrollReveal'
 const API = import.meta.env.VITE_API_URL
@@ -118,16 +118,16 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
             bg: '#eff4ff'
           },
           {
-            label: 'Tasks Attempted',
-            value: treasury?.total_tasks || 0,
-            sub: 'Earning tasks',
-            icon: Zap,
+            label: 'Hermes Cycles',
+            value: Math.max(0, ...agents.map(a => a.cycle_count || 0)),
+            sub: 'Live Pyth price updates',
+            icon: Radio,
             color: '#f5a623',
             bg: '#fff8ed'
           },
           {
             label: 'Active Agents',
-            value: agents.filter(a => a.status === 'active').length,
+            value: agents.filter(a => a.status === 'active' || a.status === 'dominant').length,
             sub: `${agents.filter(a => a.status === 'bankrupt').length} bankrupt`,
             icon: Users,
             color: '#7c3aed',

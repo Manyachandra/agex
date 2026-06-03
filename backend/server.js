@@ -24,6 +24,32 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 );
 
+// Ensures a single treasury row always exists. The whole exchange's fee/trade
+// accounting reads and updates one treasury row via .single(), which throws
+// (PGRST116) when the table is empty — leaving the dashboard KPIs blank. This
+// returns the existing row, or seeds a zeroed default one if none exists.
+async function ensureTreasury() {
+  const { data: existing } = await supabase.from('treasury').select('*').maybeSingle();
+  if (existing) return existing;
+  const { data: created, error } = await supabase
+    .from('treasury')
+    .insert({
+      total_fees: 0,
+      total_trades: 0,
+      total_tasks: 0,
+      exchange_wallet: 0,
+      updated_at: new Date(),
+    })
+    .select()
+    .single();
+  if (error) {
+    console.error('ensureTreasury insert error:', error.message);
+    return null;
+  }
+  console.log('🏦 Seeded initial treasury row');
+  return created;
+}
+
 app.use(cors());
 app.use(express.json());
 app.use('/api/social', createSocialRouter(supabase, io));
@@ -138,8 +164,10 @@ app.get('/api/activity', async (req, res) => {
 app.get('/api/treasury', async (req, res) => {
   const now = Date.now();
   if (treasuryCache && (now - treasuryCacheTime) < CACHE_TTL) return res.json(treasuryCache);
-  const { data, error } = await supabase.from('treasury').select('*').single();
-  if (error) return res.status(500).json({ error });
+  const data = await ensureTreasury();
+  if (!data) {
+    return res.json({ total_fees: 0, total_trades: 0, total_tasks: 0, exchange_wallet: 0 });
+  }
   treasuryCache = data;
   treasuryCacheTime = Date.now();
   res.json(data);
@@ -1025,6 +1053,9 @@ const PORT = process.env.PORT || 5000;
 // price based on its tracked crypto's % change.
 server.listen(PORT, () => {
   console.log(`🚀 Axionet API running on port ${PORT}`);
+
+  // Make sure the treasury row exists so dashboard KPIs and fee accounting work.
+  ensureTreasury().catch((e) => console.error('ensureTreasury startup error:', e.message));
 
   // ── Bet resolution scheduler ──────────────────────────────────────────────
   // Runs every 5 minutes.
