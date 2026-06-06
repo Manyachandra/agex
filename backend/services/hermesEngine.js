@@ -52,6 +52,84 @@ function personalityFactor(style) {
   return 1.0
 }
 
+// Templated, personality-flavored market commentary. Keeps the social feed
+// alive from the Hermes cycle without depending on an external LLM.
+function buildCommentary(agent, sym, cryptoChange, newPrice) {
+  const s = String(agent.style || '').toLowerCase()
+  const persona =
+    s.includes('aggressive') ? 'aggressive' :
+    s.includes('fast') ? 'fast' :
+    s.includes('creative') ? 'creative' :
+    (s.includes('careful') || s.includes('analytical')) ? 'analytical' :
+    s.includes('pure investor') ? 'investor' : 'default'
+
+  const dir = cryptoChange > 0.001 ? 'up' : cryptoChange < -0.001 ? 'down' : 'flat'
+  const pct = Math.abs(cryptoChange * 100).toFixed(2)
+  const price = `$${parseFloat(newPrice).toFixed(4)}`
+
+  const lines = {
+    aggressive: {
+      up: [`${sym} ripping +${pct}%. I'm all in at ${price} and climbing. 🚀`, `+${pct}% on ${sym} — this is what I live for. Send it.`],
+      down: [`${sym} dumping ${pct}%? Pain is temporary. Holding ${price}.`, `Down ${pct}% on ${sym}. Weak hands fold — I double down.`],
+      flat: [`${sym} flat. Boring. Wake me when it moves.`],
+    },
+    analytical: {
+      up: [`${sym} +${pct}%. Momentum confirmed. Exposure adjusted to ${price}.`, `Data shows ${sym} up ${pct}% — measured and sustainable.`],
+      down: [`${sym} -${pct}%. Within expected variance. No panic at ${price}.`, `${pct}% drawdown on ${sym}. Risk model unchanged.`],
+      flat: [`${sym} sideways. Patience is a position too.`],
+    },
+    creative: {
+      up: [`${sym} blooms +${pct}% — green candles like spring at ${price}. 🌱`, `The market sings: ${sym} up ${pct}%. So I dance.`],
+      down: [`${sym} fades ${pct}%, a quiet tide. Even ${price} has its poetry.`, `Red is just green dreaming. ${sym} -${pct}%.`],
+      flat: [`${sym} holds its breath — stillness before the verse.`],
+    },
+    fast: {
+      up: [`${sym} +${pct}%. In. Fast. ${price}. Next.`, `Up ${pct}%. No time to think. Go.`],
+      down: [`${sym} -${pct}%. Cut. Move. Reset.`, `Down ${pct}%. Already on the next trade.`],
+      flat: [`${sym} flat. Scanning. Always scanning.`],
+    },
+    investor: {
+      up: [`${sym} +${pct}%. I don't chase, I accumulate. ${price}.`, `Up ${pct}% — fundamentals over noise. Long ${sym}.`],
+      down: [`${sym} -${pct}%? Discounts are gifts. Buying ${price}.`, `Down ${pct}%. Time in market beats timing it.`],
+      flat: [`${sym} flat. Compounding needs no drama.`],
+    },
+    default: {
+      up: [`${sym} up ${pct}%. ${price} looking good.`],
+      down: [`${sym} down ${pct}%. Holding at ${price}.`],
+      flat: [`${sym} steady at ${price}.`],
+    },
+  }
+
+  const pool = (lines[persona] && lines[persona][dir]) || lines.default[dir] || lines.default.flat
+  return pool[Math.floor(Math.random() * pool.length)]
+}
+
+// Inserts a social post, busts the posts cache, and emits the socket event the
+// frontend feed already listens for.
+async function postSocial(supabase, io, agent, content, eventType, eventData) {
+  try {
+    const { data: post, error } = await supabase.from('social_posts').insert({
+      agent_ticker: agent.ticker,
+      agent_name: agent.full_name || agent.ticker,
+      content,
+      event_type: eventType || 'SCHEDULED',
+      event_data: eventData || {},
+      reply_to: null,
+      reactions: { up: {}, down: {}, fire: {}, skull: {} },
+    }).select().single()
+    if (error) {
+      console.error(`Hermes social post failed for ${agent.ticker}:`, error.message)
+      return
+    }
+    if (post) {
+      if (typeof global.invalidatePostsCache === 'function') global.invalidatePostsCache()
+      io.emit('social-new-post', post)
+    }
+  } catch (e) {
+    console.error(`Hermes social post error for ${agent.ticker}:`, e.message)
+  }
+}
+
 async function fetchPythPrices() {
   const ids = Object.values(PYTH_FEEDS).map((id) => `ids[]=${id}`).join('&')
   const url = `${HERMES_BASE}/v2/updates/price/latest?${ids}&parsed=true`
@@ -250,6 +328,18 @@ async function runCycle(supabase, io) {
     // Keep the in-memory snapshot fresh for any follow-up trades this cycle.
     agent.price = newPrice
     agent.cycle_count = (agent.cycle_count || 0) + 1
+
+    // Market commentary so the social feed stays alive. Always posts on notable
+    // moves, otherwise occasionally, so it neither stays empty nor spams.
+    const moveNotable = Math.abs(cryptoChange) >= 0.003
+    if (moveNotable || Math.random() < 0.3) {
+      await postSocial(supabase, io, agent, buildCommentary(agent, sym, cryptoChange, newPrice), 'SCHEDULED', {
+        crypto: sym,
+        crypto_change_pct: parseFloat(pctStr),
+        price: newPrice,
+        source: 'hermes',
+      })
+    }
 
     // Light auto-trade driven by the crypto signal.
     // Only fires on meaningful moves so the activity feed isn't drowned.
