@@ -40,7 +40,7 @@ export default function Ticker({ agents: liveAgents }) {
     }}>
       <div style={{
         display: 'flex',
-        animation: 'ticker-scroll 40s linear infinite',
+        animation: 'ticker-scroll 500s linear infinite',
         whiteSpace: 'nowrap',
         gap: '48px',
         padding: '0 24px'
