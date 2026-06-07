@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import axios from 'axios'
 import { LineChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { TrendingUp, TrendingDown, Zap, Wallet, Target } from 'lucide-react'
+import { TrendingUp, TrendingDown, Zap, Wallet, Target, Search, ChevronLeft, ChevronRight } from 'lucide-react'
 import AgentAvatar from '../components/AgentAvatar'
 import { ScrollReveal, CountUp } from '../components/ScrollReveal'
 import { usePageFocus } from '../hooks/usePageFocus'
@@ -54,24 +54,29 @@ function AnimatedBar({ label, value, pct, color, delay = 0 }) {
   )
 }
 
+const PAGE_SIZE = 24
+
+const SORT_OPTIONS = [
+  { value: 'price_desc', label: 'Price: High → Low' },
+  { value: 'price_asc', label: 'Price: Low → High' },
+  { value: 'ticker_asc', label: 'Ticker: A → Z' },
+  { value: 'tasks_desc', label: 'Tasks Won' },
+  { value: 'wallet_desc', label: 'Wallet: High → Low' },
+]
+
 export default function AgentProfiles() {
   const [agents, setAgents] = useState([])
   const [histories, setHistories] = useState({})
   const [selected, setSelected] = useState(null)
+  const [search, setSearch] = useState('')
+  const [sortBy, setSortBy] = useState('price_desc')
+  const [page, setPage] = useState(1)
 
   const fetchAgents = () => {
-    axios.get(`${API}/api/agents`).then(async r => {
+    axios.get(`${API}/api/agents`).then(r => {
       const data = asArray(r.data)
       setAgents(data)
       setSelected(prev => prev ?? data[0]?.ticker)
-      const h = {}
-      for (const a of data) {
-        try {
-          const res = await axios.get(`${API}/api/price-history/${a.ticker}`)
-          h[a.ticker] = res.data || []
-        } catch { h[a.ticker] = [] }
-      }
-      setHistories(h)
     }).catch(() => setAgents([]))
   }
 
@@ -84,6 +89,40 @@ export default function AgentProfiles() {
     }, 15000)
     return () => clearInterval(interval)
   }, [])
+
+  // Lazily load price history only for the selected agent
+  useEffect(() => {
+    if (!selected || histories[selected]) return
+    axios.get(`${API}/api/price-history/${selected}`)
+      .then(r => setHistories(h => ({ ...h, [selected]: asArray(r.data) })))
+      .catch(() => setHistories(h => ({ ...h, [selected]: [] })))
+  }, [selected, histories])
+
+  // Reset to first page when search/sort changes
+  useEffect(() => { setPage(1) }, [search, sortBy])
+
+  const filteredSorted = (() => {
+    const q = search.trim().toLowerCase()
+    const filtered = q
+      ? agents.filter(a =>
+          a.ticker.toLowerCase().includes(q) ||
+          (a.full_name || '').toLowerCase().includes(q))
+      : agents
+    return [...filtered].sort((a, b) => {
+      switch (sortBy) {
+        case 'price_asc': return parseFloat(a.price) - parseFloat(b.price)
+        case 'ticker_asc': return a.ticker.localeCompare(b.ticker)
+        case 'tasks_desc': return (b.tasks_completed || 0) - (a.tasks_completed || 0)
+        case 'wallet_desc': return parseFloat(b.wallet || 0) - parseFloat(a.wallet || 0)
+        case 'price_desc':
+        default: return parseFloat(b.price) - parseFloat(a.price)
+      }
+    })
+  })()
+
+  const totalPages = Math.max(1, Math.ceil(filteredSorted.length / PAGE_SIZE))
+  const pageClamped = Math.min(page, totalPages)
+  const paginated = filteredSorted.slice((pageClamped - 1) * PAGE_SIZE, pageClamped * PAGE_SIZE)
 
   const agent = agents.find(a => a.ticker === selected)
   const history = histories[selected] || []
@@ -109,19 +148,94 @@ export default function AgentProfiles() {
       </div>
 
       <ScrollReveal delay={0}>
-        <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
-          {agents.map(a => (
-            <button key={a.ticker} onClick={() => setSelected(a.ticker)} style={{
-              background: selected === a.ticker ? (AGENT_COLORS[a.ticker] || agentColor(a.ticker)) : 'var(--bg2)',
-              color: selected === a.ticker ? '#fff' : 'var(--text)',
-              border: `1px solid ${selected === a.ticker ? (AGENT_COLORS[a.ticker] || agentColor(a.ticker)) : 'var(--text3)'}`,
-              boxShadow: selected === a.ticker ? `0 0 12px ${(AGENT_COLORS[a.ticker] || agentColor(a.ticker))}55` : 'none',
-              padding: '8px 20px', borderRadius: '8px', cursor: 'pointer',
-              fontFamily: "'Geist Mono', monospace", fontWeight: 700, fontSize: '0.8rem', transition: 'all 0.2s'
-            }}>
-              {a.ticker}{a.status === 'bankrupt' && ' 💀'}
-            </button>
-          ))}
+        <div style={{ marginBottom: '20px' }}>
+          {/* Search + Sort controls */}
+          <div style={{ display: 'flex', gap: '10px', marginBottom: '14px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ position: 'relative', flex: '1 1 220px', minWidth: 0 }}>
+              <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text3)' }} />
+              <input
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search agents by ticker or name..."
+                style={{
+                  width: '100%', padding: '8px 12px 8px 32px', borderRadius: '8px',
+                  border: '1px solid var(--border)', background: 'var(--bg2)', color: 'var(--text)',
+                  fontFamily: "'Geist Mono', monospace", fontSize: '0.78rem', outline: 'none',
+                }}
+              />
+            </div>
+            <select
+              value={sortBy}
+              onChange={e => setSortBy(e.target.value)}
+              style={{
+                padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)',
+                background: 'var(--bg2)', color: 'var(--text)', fontFamily: "'Geist Mono', monospace",
+                fontSize: '0.78rem', cursor: 'pointer', outline: 'none',
+              }}
+            >
+              {SORT_OPTIONS.map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            <span style={{ fontSize: '0.7rem', color: 'var(--text3)', whiteSpace: 'nowrap' }}>
+              {filteredSorted.length} agent{filteredSorted.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+
+          {/* Agent buttons (paginated) */}
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {paginated.length === 0 && (
+              <div style={{ color: 'var(--text3)', fontSize: '0.78rem', padding: '8px 0' }}>
+                No agents match "{search}"
+              </div>
+            )}
+            {paginated.map(a => (
+              <button key={a.ticker} onClick={() => setSelected(a.ticker)} style={{
+                background: selected === a.ticker ? (AGENT_COLORS[a.ticker] || agentColor(a.ticker)) : 'var(--bg2)',
+                color: selected === a.ticker ? '#fff' : 'var(--text)',
+                border: `1px solid ${selected === a.ticker ? (AGENT_COLORS[a.ticker] || agentColor(a.ticker)) : 'var(--text3)'}`,
+                boxShadow: selected === a.ticker ? `0 0 12px ${(AGENT_COLORS[a.ticker] || agentColor(a.ticker))}55` : 'none',
+                padding: '8px 20px', borderRadius: '8px', cursor: 'pointer',
+                fontFamily: "'Geist Mono', monospace", fontWeight: 700, fontSize: '0.8rem', transition: 'all 0.2s'
+              }}>
+                {a.ticker}{a.status === 'bankrupt' && ' 💀'}
+              </button>
+            ))}
+          </div>
+
+          {/* Pagination controls */}
+          {totalPages > 1 && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', marginTop: '14px' }}>
+              <button
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={pageClamped <= 1}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px', borderRadius: '8px',
+                  border: '1px solid var(--border)', background: 'var(--bg2)', color: 'var(--text)',
+                  fontSize: '0.72rem', cursor: pageClamped <= 1 ? 'not-allowed' : 'pointer',
+                  opacity: pageClamped <= 1 ? 0.4 : 1,
+                }}
+              >
+                <ChevronLeft size={14} /> Prev
+              </button>
+              <span style={{ fontSize: '0.72rem', color: 'var(--text3)', fontFamily: "'Geist Mono', monospace" }}>
+                Page {pageClamped} of {totalPages}
+              </span>
+              <button
+                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                disabled={pageClamped >= totalPages}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px', borderRadius: '8px',
+                  border: '1px solid var(--border)', background: 'var(--bg2)', color: 'var(--text)',
+                  fontSize: '0.72rem', cursor: pageClamped >= totalPages ? 'not-allowed' : 'pointer',
+                  opacity: pageClamped >= totalPages ? 0.4 : 1,
+                }}
+              >
+                Next <ChevronRight size={14} />
+              </button>
+            </div>
+          )}
         </div>
       </ScrollReveal>
 

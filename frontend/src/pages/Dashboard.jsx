@@ -28,18 +28,28 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
   const [activity, setActivity] = useState([])
   const [stats, setStats] = useState(null)
   const [priceHistory, setPriceHistory] = useState([])
+  const [chartAgents, setChartAgents] = useState([])
   const [holdingsModalAgent, setHoldingsModalAgent] = useState(null)
+  const [showLegend, setShowLegend] = useState(false)
+  const [activeLine, setActiveLine] = useState(null)
 
   const fetchPriceHistory = async (agentList) => {
     if (!agentList?.length) return
+    // Only chart the top 5 gainers + top 5 losers to keep loading fast
+    const withPct = agentList.map(a => ({ ...a, pct: (parseFloat(a.price || 1) - 1) * 100 }))
+    const gainers = [...withPct].filter(a => a.pct >= 0).sort((a, b) => b.pct - a.pct).slice(0, 5)
+    const losers = [...withPct].filter(a => a.pct < 0).sort((a, b) => a.pct - b.pct).slice(0, 5)
+    const movers = [...gainers, ...losers]
+    setChartAgents(movers)
+
     const histories = await Promise.all(
-      agentList.map(a => axios.get(`${API}/api/price-history/${a.ticker}`).catch(() => ({ data: [] })))
+      movers.map(a => axios.get(`${API}/api/price-history/${a.ticker}`).catch(() => ({ data: [] })))
     )
     const merged = {}
     histories.forEach((h, i) => {
       (h.data || []).forEach((point, j) => {
         if (!merged[j]) merged[j] = { cycle: j + 1 }
-        merged[j][agentList[i].ticker] = parseFloat(point.price)
+        merged[j][movers[i].ticker] = parseFloat(point.price)
       })
     })
     setPriceHistory(Object.values(merged))
@@ -58,20 +68,22 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
       setTreasury(tr.data)
       setActivity(asArray(ac.data))
       setStats(st.data)
-      fetchPriceHistory(agentList)
     } catch (err) {
       console.error('Dashboard fetch error:', err)
     }
   }
 
   useEffect(() => {
-    // Fast path: load agents immediately for Leader/Risk cards
+    // Fast path: load agents immediately for Leader/Risk cards + price chart
     Promise.all([
       axios.get(`${API}/api/agents`).catch(() => ({ data: [] })),
       axios.get(`${API}/api/treasury`).catch(() => ({ data: null }))
     ]).then(([ag, tr]) => {
       const quick = asArray(ag.data)
-      if (quick.length) setAgents(quick)
+      if (quick.length) {
+        setAgents(quick)
+        fetchPriceHistory(quick)
+      }
       if (tr.data) setTreasury(tr.data)
     })
     // Full load runs in parallel
@@ -166,36 +178,61 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
         <div className="card" style={{ gridColumn: '1 / 2' }}>
           <div className="card-header">
             <div className="card-title">Price History</div>
-            <span className="badge badge-green">LIVE</span>
+            <button
+              type="button"
+              onClick={() => setShowLegend(true)}
+              className="badge badge-green"
+              style={{ border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+              aria-label="Show agents legend"
+            >
+              <span style={{
+                width: 6, height: 6, borderRadius: '50%', background: 'currentColor',
+                animation: 'pulse 1.5s ease-in-out infinite'
+              }} />
+              LIVE
+            </button>
           </div>
           <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={priceHistory}>
+            <LineChart data={priceHistory} onMouseLeave={() => setActiveLine(null)}>
               <XAxis dataKey="cycle" tick={{ fontSize: 10, fill: '#8896a8' }} label={{ value: 'Cycle', position: 'insideBottom', fontSize: 10 }} />
               <YAxis tick={{ fontSize: 10, fill: '#8896a8' }} domain={['auto', 'auto']} />
               <Tooltip
-                contentStyle={{ background: '#0d1117', border: '1px solid #1e2730', borderRadius: '8px', fontSize: '0.72rem' }}
-                labelStyle={{ color: '#8896a8' }}
+                isAnimationActive={false}
+                cursor={{ stroke: '#1e2730' }}
+                content={({ active, payload, label }) => {
+                  if (!active || !payload?.length) return null
+                  const items = activeLine
+                    ? payload.filter(p => p.dataKey === activeLine)
+                    : payload
+                  if (!items.length) return null
+                  return (
+                    <div style={{ background: '#0d1117', border: '1px solid #1e2730', borderRadius: 8, fontSize: '0.72rem', padding: '8px 10px' }}>
+                      <div style={{ color: '#8896a8', marginBottom: 4 }}>Cycle {label}</div>
+                      {items.map(p => (
+                        <div key={p.dataKey} style={{ color: p.color, fontWeight: 600 }}>
+                          {p.dataKey}: ${Number(p.value).toFixed(4)}
+                        </div>
+                      ))}
+                    </div>
+                  )
+                }}
               />
-              {agents.map(a => (
+              {chartAgents.map(a => (
                 <Line
                   key={a.ticker}
                   type="monotone"
                   dataKey={a.ticker}
-                  stroke={AGENT_COLORS[a.ticker]}
-                  strokeWidth={2}
+                  stroke={AGENT_COLORS[a.ticker] || agentColor(a.ticker)}
+                  strokeWidth={activeLine === a.ticker ? 3 : 2}
+                  strokeOpacity={activeLine && activeLine !== a.ticker ? 0.25 : 1}
                   dot={false}
+                  activeDot={{ r: 4, onMouseOver: () => setActiveLine(a.ticker) }}
+                  isAnimationActive={false}
+                  onMouseEnter={() => setActiveLine(a.ticker)}
                 />
               ))}
             </LineChart>
           </ResponsiveContainer>
-          <div style={{ display: 'flex', gap: '16px', marginTop: '12px', flexWrap: 'wrap' }}>
-            {agents.map(a => (
-              <div key={a.ticker} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <div style={{ width: '12px', height: '2px', background: AGENT_COLORS[a.ticker], borderRadius: '2px' }} />
-                <span style={{ fontSize: '0.65rem', color: 'var(--text3)' }}>{a.ticker}</span>
-              </div>
-            ))}
-          </div>
         </div>
 
         {/* Leader + Risk */}
@@ -312,7 +349,6 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
         )
       })()}
 
-      <ScrollReveal delay={300}>
       {/* All Agents Table */}
       {(() => {
         const visible = agents.filter(a => ['active', 'dominant', 'bankrupt'].includes(a.status))
@@ -397,9 +433,6 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
         )
       })()}
 
-</ScrollReveal>
-
-<ScrollReveal delay={400}>
 {/* Activity Feed Preview */}
 <div className="card">
         <div className="card-header">
@@ -452,8 +485,6 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
           ))}
         </div>
       </div>
-
-      </ScrollReveal>
 
       {holdingsModalAgent && (
         <div
@@ -517,6 +548,105 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
                     )
                   })
                 : <div style={{ padding: '8px 0', color: 'var(--text3)' }}>No holdings</div>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Price History Agents Legend Modal */}
+      {showLegend && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Price history agents"
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 1000, padding: 16, backdropFilter: 'blur(2px)',
+          }}
+          onClick={() => setShowLegend(false)}
+        >
+          <div
+            className="fade-in"
+            style={{
+              background: 'var(--bg2)', border: '1px solid var(--border)',
+              borderRadius: 14, width: '100%', maxWidth: 420, maxHeight: '80vh',
+              overflow: 'hidden', boxShadow: '0 12px 40px rgba(0,0,0,0.45)',
+              display: 'flex', flexDirection: 'column',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: '16px 20px', borderBottom: '1px solid var(--border)',
+            }}>
+              <div>
+                <div style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: '1rem', color: 'var(--text)' }}>
+                  Price History
+                </div>
+                <div style={{ fontSize: '0.68rem', color: 'var(--text3)', marginTop: 2 }}>
+                  Top {chartAgents.length} mover{chartAgents.length !== 1 ? 's' : ''} on the chart
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowLegend(false)}
+                style={{
+                  background: 'transparent', border: 'none', cursor: 'pointer',
+                  padding: 4, color: 'var(--text3)', display: 'flex', alignItems: 'center',
+                }}
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ padding: '8px 12px', overflowY: 'auto' }}>
+              {chartAgents.length === 0 && (
+                <div style={{ padding: 20, textAlign: 'center', color: 'var(--text3)', fontSize: '0.75rem' }}>
+                  No agents to display
+                </div>
+              )}
+              {[...chartAgents].sort((a, b) => parseFloat(b.price) - parseFloat(a.price)).map(a => {
+                const color = AGENT_COLORS[a.ticker] || agentColor(a.ticker)
+                const price = parseFloat(a.price || 1)
+                const pct = (price - 1) * 100
+                const up = pct >= 0
+                return (
+                  <div
+                    key={a.ticker}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 12,
+                      padding: '10px 8px', borderRadius: 10,
+                      borderBottom: '1px solid var(--border)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                      <span style={{ width: 14, height: 3, borderRadius: 2, background: color }} />
+                      <AgentAvatar ticker={a.ticker} avatarUrl={a.avatar_url} size="sm" />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text)' }}>
+                        ${a.ticker}
+                      </div>
+                      <div style={{
+                        fontSize: '0.66rem', color: 'var(--text3)',
+                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                      }}>
+                        {a.full_name}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                      <div style={{ fontSize: '0.8rem', fontWeight: 700, color: up ? 'var(--green)' : 'var(--red)' }}>
+                        ${price.toFixed(4)}
+                      </div>
+                      <div style={{ fontSize: '0.64rem', fontWeight: 600, color: up ? 'var(--green)' : 'var(--red)' }}>
+                        {up ? '▲' : '▼'} {Math.abs(pct).toFixed(2)}%
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           </div>
         </div>

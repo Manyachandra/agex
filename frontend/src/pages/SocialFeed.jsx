@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import axios from 'axios'
 import { socket } from '../lib/socket'
-import { MessageCircle, TrendingUp, Filter, ChevronDown, ChevronUp, Flame, Skull, ArrowUp, ArrowDown, Zap } from 'lucide-react'
+import { MessageCircle, TrendingUp, Filter, ChevronDown, ChevronUp, Flame, Skull, ArrowUp, ArrowDown, Zap, Search, ChevronLeft, ChevronRight, Users } from 'lucide-react'
 import AgentAvatar from '../components/AgentAvatar'
 import { useAuth } from '../context/AuthContext'
 import { ScrollReveal } from '../components/ScrollReveal'
@@ -29,6 +29,16 @@ const AGENT_COLORS = {
 }
 
 const TYPE_FILTERS = ['ALL', 'CONTENT', 'TASKS', 'TRADES', 'RIVALRIES', 'SCHEDULED']
+
+const AGENT_PAGE_SIZE = 24
+
+const AGENT_SORT_OPTIONS = [
+  { value: 'price_desc', label: 'Price: High → Low' },
+  { value: 'price_asc', label: 'Price: Low → High' },
+  { value: 'ticker_asc', label: 'Ticker: A → Z' },
+  { value: 'tasks_desc', label: 'Tasks Won' },
+  { value: 'wallet_desc', label: 'Wallet: High → Low' },
+]
 
 function getAgentColor(ticker) {
   return AGENT_COLORS[ticker] || `hsl(${[...ticker].reduce((h, c) => h + c.charCodeAt(0), 0) % 360}, 60%, 50%)`
@@ -172,6 +182,9 @@ export default function SocialFeed() {
   const [loading, setLoading] = useState(true)
   const [agentFilter, setAgentFilter] = useState('ALL')
   const [typeFilter, setTypeFilter] = useState('ALL')
+  const [agentSearch, setAgentSearch] = useState('')
+  const [agentSort, setAgentSort] = useState('price_desc')
+  const [agentPage, setAgentPage] = useState(1)
   const [page, setPage] = useState(1)
   const [hasMore, setHasMore] = useState(true)
   const [lastUpdated, setLastUpdated] = useState(null)
@@ -283,7 +296,27 @@ export default function SocialFeed() {
     fetchPosts(next, true)
   }
 
-  const agentTickers = ['ALL', ...agents.map(a => a.ticker)]
+  useEffect(() => { setAgentPage(1) }, [agentSearch, agentSort])
+
+  const aq = agentSearch.trim().toLowerCase()
+  const agentFiltered = aq
+    ? agents.filter(a =>
+        a.ticker.toLowerCase().includes(aq) ||
+        (a.full_name || '').toLowerCase().includes(aq))
+    : agents
+  const agentSorted = [...agentFiltered].sort((a, b) => {
+    switch (agentSort) {
+      case 'price_asc': return parseFloat(a.price) - parseFloat(b.price)
+      case 'ticker_asc': return a.ticker.localeCompare(b.ticker)
+      case 'tasks_desc': return (b.tasks_completed || 0) - (a.tasks_completed || 0)
+      case 'wallet_desc': return parseFloat(b.wallet || 0) - parseFloat(a.wallet || 0)
+      case 'price_desc':
+      default: return parseFloat(b.price) - parseFloat(a.price)
+    }
+  })
+  const agentTotalPages = Math.max(1, Math.ceil(agentSorted.length / AGENT_PAGE_SIZE))
+  const agentPageClamped = Math.min(agentPage, agentTotalPages)
+  const agentPaginated = agentSorted.slice((agentPageClamped - 1) * AGENT_PAGE_SIZE, agentPageClamped * AGENT_PAGE_SIZE)
 
   const filteredPosts = useMemo(() => {
     let list = posts
@@ -304,36 +337,115 @@ export default function SocialFeed() {
         </div>
       </ScrollReveal>
 
-      <ScrollReveal delay={100}>
-        <div className="social-filters">
-          <div className="social-filter-row">
-            <Filter size={13} color="var(--text3)" />
-            {agentTickers.map(t => (
-              <button
-                key={t}
-                className={`social-filter-btn ${agentFilter === t ? 'social-filter-btn--active' : ''}`}
-                onClick={() => setAgentFilter(t)}
-              >
-                {t === 'ALL' ? 'All Agents' : `$${t}`}
-              </button>
-            ))}
-          </div>
-          <div className="social-filter-row">
-            {TYPE_FILTERS.map(t => (
-              <button
-                key={t}
-                className={`social-filter-btn social-filter-btn--type ${typeFilter === t ? 'social-filter-btn--active' : ''}`}
-                onClick={() => setTypeFilter(t)}
-              >
-                {t === 'ALL' ? 'All Types' : t.charAt(0) + t.slice(1).toLowerCase()}
-              </button>
-            ))}
-          </div>
+      <div className="card" style={{ marginBottom: '16px' }}>
+        <div className="card-header">
+          <div className="card-title">Browse by Agent</div>
+          <Users size={14} color="var(--text3)" />
         </div>
-      </ScrollReveal>
 
-      <ScrollReveal delay={150}>
-        <div className="social-layout">
+        <div style={{ display: 'flex', gap: '10px', marginBottom: '14px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ position: 'relative', flex: '1 1 220px', minWidth: 0 }}>
+            <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text3)' }} />
+            <input
+              type="text"
+              value={agentSearch}
+              onChange={e => setAgentSearch(e.target.value)}
+              placeholder="Search agents by ticker or name..."
+              style={{
+                width: '100%', padding: '8px 12px 8px 32px', borderRadius: '8px',
+                border: '1px solid var(--border)', background: 'var(--bg2)', color: 'var(--text)',
+                fontFamily: "'Geist Mono', monospace", fontSize: '0.78rem', outline: 'none',
+              }}
+            />
+          </div>
+          <select
+            value={agentSort}
+            onChange={e => setAgentSort(e.target.value)}
+            style={{
+              padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)',
+              background: 'var(--bg2)', color: 'var(--text)', fontFamily: "'Geist Mono', monospace",
+              fontSize: '0.78rem', cursor: 'pointer', outline: 'none',
+            }}
+          >
+            {AGENT_SORT_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+          <span style={{ fontSize: '0.7rem', color: 'var(--text3)', whiteSpace: 'nowrap' }}>
+            {agentSorted.length} agent{agentSorted.length !== 1 ? 's' : ''}
+          </span>
+        </div>
+
+        <div className="social-filter-row">
+          <button
+            className={`social-filter-btn ${agentFilter === 'ALL' ? 'social-filter-btn--active' : ''}`}
+            onClick={() => setAgentFilter('ALL')}
+          >
+            All Agents
+          </button>
+          {agentPaginated.map(a => (
+            <button
+              key={a.ticker}
+              className={`social-filter-btn ${agentFilter === a.ticker ? 'social-filter-btn--active' : ''}`}
+              onClick={() => setAgentFilter(a.ticker)}
+            >
+              ${a.ticker}{a.status === 'bankrupt' && ' 💀'}
+            </button>
+          ))}
+          {agentPaginated.length === 0 && (
+            <div style={{ color: 'var(--text3)', fontSize: '0.78rem', padding: '8px 0' }}>
+              No agents match "{agentSearch}"
+            </div>
+          )}
+        </div>
+
+        {agentTotalPages > 1 && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', marginTop: '14px' }}>
+            <button
+              onClick={() => setAgentPage(p => Math.max(1, p - 1))}
+              disabled={agentPageClamped <= 1}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px', borderRadius: '8px',
+                border: '1px solid var(--border)', background: 'var(--bg2)', color: 'var(--text)',
+                fontSize: '0.72rem', cursor: agentPageClamped <= 1 ? 'not-allowed' : 'pointer',
+                opacity: agentPageClamped <= 1 ? 0.4 : 1,
+              }}
+            >
+              <ChevronLeft size={14} /> Prev
+            </button>
+            <span style={{ fontSize: '0.72rem', color: 'var(--text3)', fontFamily: "'Geist Mono', monospace" }}>
+              Page {agentPageClamped} of {agentTotalPages}
+            </span>
+            <button
+              onClick={() => setAgentPage(p => Math.min(agentTotalPages, p + 1))}
+              disabled={agentPageClamped >= agentTotalPages}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px', borderRadius: '8px',
+                border: '1px solid var(--border)', background: 'var(--bg2)', color: 'var(--text)',
+                fontSize: '0.72rem', cursor: agentPageClamped >= agentTotalPages ? 'not-allowed' : 'pointer',
+                opacity: agentPageClamped >= agentTotalPages ? 0.4 : 1,
+              }}
+            >
+              Next <ChevronRight size={14} />
+            </button>
+          </div>
+        )}
+
+        <div className="social-filter-row" style={{ marginTop: '14px', paddingTop: '14px', borderTop: '1px solid var(--border)' }}>
+          <Filter size={13} color="var(--text3)" />
+          {TYPE_FILTERS.map(t => (
+            <button
+              key={t}
+              className={`social-filter-btn social-filter-btn--type ${typeFilter === t ? 'social-filter-btn--active' : ''}`}
+              onClick={() => setTypeFilter(t)}
+            >
+              {t === 'ALL' ? 'All Types' : t.charAt(0) + t.slice(1).toLowerCase()}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="social-layout">
           <div className="social-feed-col">
             {loading && posts.length === 0 && (
               <div className="card" style={{ textAlign: 'center', padding: 40, color: 'var(--text3)' }}>
@@ -451,8 +563,7 @@ export default function SocialFeed() {
               </div>
             </div>
           </div>
-        </div>
-      </ScrollReveal>
+      </div>
 
     </div>
   )

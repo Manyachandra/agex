@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import axios from 'axios'
-import { TrendingUp, TrendingDown, X } from 'lucide-react'
+import { TrendingUp, TrendingDown, X, ChevronLeft, ChevronRight } from 'lucide-react'
 import AgentAvatar from '../components/AgentAvatar'
 import { ScrollReveal } from '../components/ScrollReveal'
 
@@ -16,10 +16,13 @@ function agentColor(ticker) {
   return `hsl(${h}, 60%, 50%)`
 }
 
+const PAGE_SIZE = 20
+
 export default function Leaderboard() {
   const [agents, setAgents] = useState([])
   const [loading, setLoading] = useState(true)
   const [holdingsModalAgent, setHoldingsModalAgent] = useState(null)
+  const [page, setPage] = useState(1)
 
   const fetchAgents = () => {
     axios.get(`${API}/api/agents`)
@@ -41,6 +44,11 @@ export default function Leaderboard() {
 
   const sorted = [...agents].sort((a, b) => b.price - a.price)
   const avgPrice = agents.length ? agents.reduce((s, a) => s + parseFloat(a.price), 0) / agents.length : 1
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
+  const pageClamped = Math.min(page, totalPages)
+  const pageStart = (pageClamped - 1) * PAGE_SIZE
+  const paginated = sorted.slice(pageStart, pageStart + PAGE_SIZE)
 
   const getStatusBadge = (agent, rank) => {
     if (agent.status === 'bankrupt') return <span className="badge badge-red">BANKRUPT</span>
@@ -179,11 +187,10 @@ export default function Leaderboard() {
 
 </ScrollReveal>
 
-<ScrollReveal delay={150}>
 <div className="card">
   <div className="card-header">
     <div className="card-title">Full Rankings</div>
-          <span className="badge badge-green">LIVE DATA</span>
+          <span className="badge badge-green">{sorted.length} AGENTS</span>
         </div>
         <div style={{ overflowX: 'auto' }}>
           <table className="data-table" style={{ width: '100%' }}>
@@ -202,7 +209,8 @@ export default function Leaderboard() {
                   </td>
                 </tr>
               )}
-              {sorted.map((agent, i) => {
+              {paginated.map((agent, idx) => {
+                const i = pageStart + idx
                 const change = ((parseFloat(agent.price) - 1) * 100).toFixed(2)
                 const sr = successRate(agent)
                 const color = agentColor(agent.ticker)
@@ -299,9 +307,39 @@ export default function Leaderboard() {
             </tbody>
           </table>
         </div>
-      </div>
 
-      </ScrollReveal>
+        {totalPages > 1 && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', marginTop: '16px' }}>
+            <button
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={pageClamped <= 1}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px', borderRadius: '8px',
+                border: '1px solid var(--border)', background: 'var(--bg2)', color: 'var(--text)',
+                fontSize: '0.72rem', cursor: pageClamped <= 1 ? 'not-allowed' : 'pointer',
+                opacity: pageClamped <= 1 ? 0.4 : 1,
+              }}
+            >
+              <ChevronLeft size={14} /> Prev
+            </button>
+            <span style={{ fontSize: '0.72rem', color: 'var(--text3)', fontFamily: "'Geist Mono', monospace" }}>
+              Page {pageClamped} of {totalPages}
+            </span>
+            <button
+              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+              disabled={pageClamped >= totalPages}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px', borderRadius: '8px',
+                border: '1px solid var(--border)', background: 'var(--bg2)', color: 'var(--text)',
+                fontSize: '0.72rem', cursor: pageClamped >= totalPages ? 'not-allowed' : 'pointer',
+                opacity: pageClamped >= totalPages ? 0.4 : 1,
+              }}
+            >
+              Next <ChevronRight size={14} />
+            </button>
+          </div>
+        )}
+      </div>
 
       {holdingsModalAgent && (
         <div
