@@ -1,9 +1,11 @@
 const express = require('express');
 const { ethers } = require('ethers');
+const walletBalances = require('../services/walletBalances');
 
 const USDC_CONTRACT = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
 const BASE_RPC = 'https://mainnet.base.org';
-const MIN_AMOUNT = 1; // $1 minimum
+const MIN_AMOUNT = 1; // $1 minimum (USDC remove/reward)
+const MIN_ETH = 0.0001; // minimum ETH for add-fund
 
 // USDC ABI — only what we need
 const USDC_ABI = [
@@ -85,8 +87,44 @@ function createFundsRouter(supabase, io) {
     return { valid: false, reason: 'Verification failed after all retries' };
   }
 
+  // ── Verify a native ETH transfer to the agent's wallet on Base ────────────
+  async function verifyEthTransfer(txHash, expectedFrom, expectedTo, expectedAmount) {
+    const maxRetries = 3;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const tx = await provider.getTransaction(txHash);
+        if (!tx) {
+          if (attempt < maxRetries) { await new Promise(r => setTimeout(r, attempt * 2000)); continue; }
+          return { valid: false, reason: 'Transaction not found after retries' };
+        }
+        const receipt = await provider.getTransactionReceipt(txHash);
+        if (!receipt || receipt.status !== 1) {
+          if (!receipt && attempt < maxRetries) { await new Promise(r => setTimeout(r, attempt * 2000)); continue; }
+          return { valid: false, reason: 'Transaction failed or receipt not available' };
+        }
+        if (tx.to?.toLowerCase() !== expectedTo.toLowerCase()) {
+          return { valid: false, reason: 'ETH not sent to the agent wallet' };
+        }
+        if (tx.from?.toLowerCase() !== expectedFrom.toLowerCase()) {
+          return { valid: false, reason: 'Sender does not match connected wallet' };
+        }
+        const value = parseFloat(ethers.formatEther(tx.value));
+        if (value + 1e-12 < expectedAmount) {
+          return { valid: false, reason: `Sent ${value} ETH, expected ${expectedAmount}` };
+        }
+        return { valid: true, amount: value };
+      } catch (err) {
+        if (attempt < maxRetries) { await new Promise(r => setTimeout(r, attempt * 2000)); continue; }
+        return { valid: false, reason: err.message };
+      }
+    }
+    return { valid: false, reason: 'Verification failed after all retries' };
+  }
+
   // ── POST /api/funds/add ───────────────────────────────────────────────────
-  // User sends USDC to house wallet → agent wallet increases
+  // User sends real ETH directly to the agent's own on-chain wallet on Base.
+  // The agent's balance is read live on-chain, so we don't touch the simulated
+  // `wallet` field — we just verify the transfer and log it.
   router.post('/add', async (req, res) => {
     try {
       const { agentTicker, userWallet, userId, amount, txHash } = req.body;
@@ -96,8 +134,8 @@ function createFundsRouter(supabase, io) {
       }
 
       const parsedAmount = parseFloat(amount);
-      if (isNaN(parsedAmount) || parsedAmount < MIN_AMOUNT) {
-        return res.status(400).json({ error: `Minimum amount is $${MIN_AMOUNT}` });
+      if (isNaN(parsedAmount) || parsedAmount < MIN_ETH) {
+        return res.status(400).json({ error: `Minimum amount is ${MIN_ETH} ETH` });
       }
 
       // Prevent duplicate TX
@@ -110,37 +148,32 @@ function createFundsRouter(supabase, io) {
         return res.status(400).json({ error: 'Transaction already used' });
       }
 
-      // Verify USDC transfer on chain
-      console.log(`Verifying USDC tx ${txHash} for $${parsedAmount} from ${userWallet}...`);
-      const verification = await verifyUSDCTransfer(txHash, userWallet, parsedAmount);
-      console.log('Verification:', JSON.stringify(verification));
-
-      if (!verification.valid) {
-        return res.status(400).json({ error: `TX verification failed: ${verification.reason}` });
-      }
-
-      // Fetch agent
+      // Fetch agent (need its real wallet address to verify the transfer).
       const { data: agent } = await supabase
         .from('agents')
         .select('*')
         .eq('ticker', agentTicker)
         .single();
       if (!agent) return res.status(404).json({ error: 'Agent not found' });
+      if (!agent.wallet_address) {
+        return res.status(400).json({ error: 'Agent has no on-chain wallet' });
+      }
 
-      // Add to agent wallet
-      const newWallet = parseFloat(agent.wallet) + parsedAmount;
-      await supabase.from('agents').update({
-        wallet: newWallet,
-        updated_at: new Date()
-      }).eq('ticker', agentTicker);
+      // Verify the native ETH transfer landed in the agent's wallet.
+      console.log(`Verifying ETH tx ${txHash} for ${parsedAmount} ETH ${userWallet} -> ${agent.wallet_address}...`);
+      const verification = await verifyEthTransfer(txHash, userWallet, agent.wallet_address, parsedAmount);
+      console.log('ETH verification:', JSON.stringify(verification));
+      if (!verification.valid) {
+        return res.status(400).json({ error: `TX verification failed: ${verification.reason}` });
+      }
 
-      // Record in agent_fund_history table
+      // Record in agent_fund_history (amount stored in ETH for add).
       await supabase.from('agent_fund_history').insert({
         agent_ticker: agentTicker,
         user_id: userId,
         user_wallet: userWallet,
         type: 'add',
-        amount: parsedAmount,
+        amount: verification.amount,
         tx_hash: txHash,
         status: 'completed',
         created_at: new Date().toISOString()
@@ -149,14 +182,18 @@ function createFundsRouter(supabase, io) {
       // Activity log
       await supabase.from('activity').insert({
         agent_ticker: agentTicker,
-        action: `💰 Fund added $${parsedAmount.toFixed(2)} to wallet — new balance $${newWallet.toFixed(2)}`,
-        amount: parsedAmount,
+        action: `💰 Funded ${verification.amount} ETH into ${agentTicker}'s on-chain wallet`,
+        amount: verification.amount,
         action_type: 'fund_add'
       });
 
-      if (io) io.emit('fund-update', { type: 'add', agentTicker, amount: parsedAmount, newWallet });
+      // Refresh the cached real balance so the UI updates promptly.
+      try { await walletBalances.refreshAll(supabase); } catch (e) { /* best effort */ }
+      const bal = walletBalances.getBalance(agentTicker);
 
-      res.json({ success: true, newWallet, amount: parsedAmount });
+      if (io) io.emit('fund-update', { type: 'add', agentTicker, ethAmount: verification.amount, realUsd: bal?.usd });
+
+      res.json({ success: true, ethAdded: verification.amount, realUsd: bal?.usd ?? null });
     } catch (err) {
       console.error('Add fund error:', err);
       res.status(500).json({ error: err.message || 'Internal server error' });

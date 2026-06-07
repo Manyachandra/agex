@@ -11,7 +11,7 @@ import AgentAvatar from '../components/AgentAvatar'
 import { ScrollReveal } from '../components/ScrollReveal'
 import {
   Dice5, Wallet, TrendingUp, Clock,
-  AlertTriangle, Trophy, Skull, ArrowUp, ArrowDown,
+  AlertTriangle, Trophy, ArrowUp, ArrowDown,
   Loader, ExternalLink, Info, CheckCircle, XCircle
 } from 'lucide-react'
 
@@ -28,14 +28,6 @@ const BET_TYPES = {
     duration:  '24h',
     rightDesc: 'Bet + same % as agent price gained',
     wrongDesc: 'Bet − same % as agent price dropped',
-  },
-  bankrupt_24h: {
-    label:     'Goes bankrupt in 24h',
-    icon:      Skull,
-    color:     '#ef4444',
-    duration:  '24h',
-    rightDesc: 'Bet + % of price collapse (big reward)',
-    wrongDesc: 'Bet − % agent price rose',
   },
   price_up_next: {
     label:     'Price up next cycle',
@@ -67,14 +59,7 @@ function formatTimeLeft(expiresAt) {
 }
 
 function BetSlipContent({ selectedAgent, selectedBetType, betAmount, setBetAmount, placing, isSending, isConfirming, txStatus, handlePlaceBet }) {
-  const scenarios = selectedBetType === 'bankrupt_24h'
-    ? [
-        { pct: 95, label: 'Bankrupt (−95%)', right: true  },
-        { pct: 50, label: 'Bankrupt (−50%)', right: true  },
-        { pct: 10, label: 'Price +10%',       right: false },
-        { pct: 25, label: 'Price +25%',       right: false },
-      ]
-    : selectedBetType === 'price_up_next'
+  const scenarios = selectedBetType === 'price_up_next'
     ? [
         { pct: 15, label: 'Price +15%', right: true  },
         { pct: 5,  label: 'Price +5%',  right: true  },

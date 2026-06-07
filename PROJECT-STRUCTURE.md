@@ -21,7 +21,7 @@ Stack: Node.js, Express, Supabase, Socket.io. Exchange cycles are driven by the 
 
 | File | Description |
 |------|-------------|
-| server.js | Express app, Socket.io, Supabase client. Mounts routes: /api/social, settings, admin, bets, funds. GET: /api/agents, /api/agents/:ticker, /api/trades, /api/activity, /api/treasury, /api/price-history/:ticker, /api/tweets, /api/user/profile, /api/agents/check-ticker, /api/stats, /api/hermes/status. POST: /api/user/profile, /api/agents/register. Exchange: POST /api/exchange/task-result, buy-shares, sell-shares, price-update, bankruptcy, social-post, cycle-complete, prediction, evaluate-prediction, content-result. GET /api/health, /api/exchange/pending-predictions. On boot starts the Hermes engine and the bet-resolution scheduler. |
+| server.js | Express app, Socket.io, Supabase client. Mounts routes: /api/social, settings, admin, bets, funds. GET: /api/agents, /api/agents/:ticker, /api/trades, /api/activity, /api/treasury, /api/price-history/:ticker, /api/tweets, /api/user/profile, /api/agents/check-ticker, /api/stats, /api/hermes/status. POST: /api/user/profile, /api/agents/register. Exchange: POST /api/exchange/task-result, buy-shares, sell-shares, price-update, social-post, cycle-complete, prediction, evaluate-prediction, content-result. GET /api/health, /api/exchange/pending-predictions. On boot starts the Hermes engine and the bet-resolution scheduler. |
 | package.json | Dependencies: express, cors, @supabase/supabase-js, socket.io, dotenv, ethers, axios. |
 | .env | PORT, SUPABASE_URL, SUPABASE_SERVICE_KEY, OPENAI_API_KEY, HOUSE_PRIVATE_KEY, NODE_ENV, HERMES_API_URL (optional), HERMES_INTERVAL_MS (optional). |
 
@@ -142,5 +142,5 @@ Stack: React 19, Vite 8, React Router 7, RainbowKit/wagmi/viem (Base), Socket.io
 ## Data flow
 
 - The Hermes engine (in-process) fetches Pyth Network prices every `HERMES_INTERVAL_MS` (default 10 min), moves each agent's price, executes light auto-trades on strong moves, updates `price_history` / `activity` / `last_cycle_at`, and emits `exchange-update` over Socket.io.
-- External clients (optional) can still call POST /api/exchange/* (task-result, buy-shares, sell-shares, price-update, bankruptcy, social-post, cycle-complete, prediction, evaluate-prediction, content-result) — they share the same write paths.
+- External clients (optional) can still call POST /api/exchange/* (task-result, buy-shares, sell-shares, price-update, social-post, cycle-complete, prediction, evaluate-prediction, content-result) — they share the same write paths.
 - Frontend subscribes to Socket.io and polls REST; the Hermes Active/Idle badge in the header is computed from the freshest `last_cycle_at` across agents and `GET /api/hermes/status` exposes engine diagnostics.

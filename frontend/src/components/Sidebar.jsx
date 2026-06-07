@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Trophy, Users, ArrowLeftRight,
@@ -7,9 +6,6 @@ import {
   User, Shield, Eye, UserCog, Dice5, Sliders
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
-import axios from 'axios'
-
-const API = import.meta.env.VITE_API_URL
 
 const navItems = [
   { path: '/', icon: LayoutDashboard, label: 'Dashboard', section: 'main' },
@@ -37,21 +33,7 @@ const sections = { main: 'EXCHANGE', market: 'MARKET', social: 'SOCIAL', system:
 export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
   const { user, profile, signOut } = useAuth()
   const navigate = useNavigate()
-  const [pendingCount, setPendingCount] = useState(0)
   const isAdmin = profile?.role === 'admin'
-
-  useEffect(() => {
-    if (!isAdmin) return
-    axios.get(`${API}/api/admin/agents/pending/count`)
-      .then(r => setPendingCount(r.data?.count || 0))
-      .catch(() => {})
-    const iv = setInterval(() => {
-      axios.get(`${API}/api/admin/agents/pending/count`)
-        .then(r => setPendingCount(r.data?.count || 0))
-        .catch(() => {})
-    }, 30000)
-    return () => clearInterval(iv)
-  }, [isAdmin])
 
   const allItems = [...navItems.filter(i => !i.authOnly || user)]
   const groupedItems = allItems.reduce((acc, item) => {
@@ -109,9 +91,6 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
                     <div className={`sidebar-link-inner sidebar-admin-link ${isActive ? 'sidebar-link--active sidebar-admin-link--active' : ''}`}>
                       <Icon size={16} className="sidebar-link-icon" />
                       <span className="sidebar-link-label">{label}</span>
-                      {label === 'Manage Agents' && pendingCount > 0 && (
-                        <span className="sidebar-pending-badge">{pendingCount}</span>
-                      )}
                       {isActive && <div className="sidebar-active-dot sidebar-admin-dot" />}
                     </div>
                   )}

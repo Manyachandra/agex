@@ -16,7 +16,6 @@ const PARAM_LABELS = {
   exchange_cycle_interval: 'Exchange Cycle Interval',
   task_cycle_interval: 'Task Cycle Interval',
   trade_fee: 'Trade Fee',
-  bankruptcy_threshold: 'Bankruptcy Threshold',
   dominant_multiplier: 'Dominant Multiplier',
   dashboard_refresh_rate: 'Dashboard Refresh Rate',
 }
@@ -25,7 +24,6 @@ const PARAM_UNITS = {
   exchange_cycle_interval: 'min',
   task_cycle_interval: 'min',
   trade_fee: '%',
-  bankruptcy_threshold: '$',
   dominant_multiplier: 'x',
   dashboard_refresh_rate: 's',
 }
@@ -36,12 +34,9 @@ const AGENT_COLORS = {
 }
 
 const STATUS_BADGES = {
-  pending_approval: { label: 'Pending', cls: 'badge-gold' },
   active: { label: 'Active', cls: 'badge-green' },
   dominant: { label: 'Dominant', cls: 'badge-green' },
-  rejected: { label: 'Rejected', cls: 'badge-red' },
   suspended: { label: 'Suspended', cls: 'badge-gold' },
-  bankrupt: { label: 'Bankrupt', cls: 'badge-red' },
 }
 
 function getColor(ticker) {
@@ -59,7 +54,7 @@ function timeAgo(d) {
 
 const DEFAULTS = {
   exchange_cycle_interval: 10, task_cycle_interval: 15, trade_fee: 2,
-  bankruptcy_threshold: 0.10, dominant_multiplier: 1.5,
+  dominant_multiplier: 1.5,
   allow_agent_suggestions: true, dashboard_refresh_rate: 30,
 }
 
@@ -482,7 +477,6 @@ function AdminSettingsView() {
             </div>
             {[
               { label: 'Trade Fee', key: 'trade_fee', unit: '%', min: 0, max: 10, step: 0.5 },
-              { label: 'Bankruptcy Threshold', key: 'bankruptcy_threshold', unit: '$', min: 0.01, max: 1, step: 0.01 },
               { label: 'Dominant Price Multiplier', key: 'dominant_multiplier', unit: 'x avg', min: 1.1, max: 3, step: 0.1 },
             ].map(s => (
               <div key={s.key} style={{ marginBottom: 16 }}>

@@ -10,6 +10,17 @@ const createAdminRouter = require('./routes/admin');
 const { createBetsRouter, resolveBets } = require('./routes/bets');
 const { createFundsRouter } = require('./routes/funds');
 const hermesEngine = require('./services/hermesEngine');
+const agentWallet = require('./services/agentWallet');
+const trendingTokens = require('./services/trendingTokens');
+const realTradingEngine = require('./services/realTradingEngine');
+const walletBalances = require('./services/walletBalances');
+
+// Never expose an agent's private key over the API, and overwrite the legacy
+// simulated `wallet` field with the agent's REAL on-chain USD balance so the
+// whole site shows real money. Delegates to the walletBalances cache.
+function stripAgentSecrets(agent) {
+  return walletBalances.decorate(agent);
+}
 
 dotenv.config();
 
@@ -78,9 +89,9 @@ app.get('/api/agents', async (req, res) => {
     .select('*')
     .order('price', { ascending: false });
   if (error) return res.status(500).json({ error });
-  agentsCache = data;
+  agentsCache = stripAgentSecrets(data);
   agentsCacheTime = now;
-  res.json(data);
+  res.json(agentsCache);
 });
 
 // Get single agent
@@ -91,7 +102,26 @@ app.get('/api/agents/:ticker', async (req, res) => {
     .eq('ticker', req.params.ticker)
     .single();
   if (error) return res.status(500).json({ error });
-  res.json(data);
+  res.json(stripAgentSecrets(data));
+});
+
+// Get an agent's REAL on-chain wallet balance (native ETH + payment token).
+app.get('/api/agents/:ticker/wallet', async (req, res) => {
+  try {
+    const { data: agent, error } = await supabase
+      .from('agents')
+      .select('ticker, wallet_address')
+      .eq('ticker', req.params.ticker)
+      .single();
+    if (error || !agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!agent.wallet_address) {
+      return res.json({ ticker: agent.ticker, address: null, eth: 0, token: 0, tokenSymbol: agentWallet.TOKEN_SYMBOL });
+    }
+    const balances = await agentWallet.getWalletBalances(agent.wallet_address);
+    res.json({ ticker: agent.ticker, ...balances });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Owner-only update of an agent's editable fields (non-admin self-service)
@@ -128,8 +158,8 @@ app.put('/api/agents/:ticker', async (req, res) => {
       .single();
     if (error) return res.status(500).json({ error: error.message });
 
-    io.emit('agent-updated', data);
-    res.json(data);
+    io.emit('agent-updated', stripAgentSecrets(data));
+    res.json(stripAgentSecrets(data));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -145,6 +175,45 @@ app.get('/api/trades', async (req, res) => {
     .limit(limit);
   if (error) return res.status(500).json({ error });
   res.json(data);
+});
+
+// Real 2% fee transactions (house fees collected from agent wallets).
+// Sourced from the activity log (action_type = 'fee'); amount is the USD value.
+app.get('/api/fees', async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 100, 1000);
+    let query = supabase
+      .from('activity')
+      .select('*')
+      .eq('action_type', 'fee')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (req.query.ticker) query = query.eq('agent_ticker', req.query.ticker);
+    const { data, error } = await query;
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Real on-chain token trades (ETH <-> trending Base tokens). Optional ?ticker=
+// filters to a single agent's history.
+app.get('/api/token-trades', async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 1000, 5000);
+    let query = supabase
+      .from('agent_token_trades')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (req.query.ticker) query = query.eq('agent_ticker', req.query.ticker);
+    const { data, error } = await query;
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Get activity
@@ -337,43 +406,15 @@ app.post('/api/agents/register', async (req, res) => {
       return res.status(409).json({ error: `Ticker ${cleanTicker} is already taken` });
     }
 
-    // Check the admin "free agent registration" toggle
-    const { data: settingsRow } = await supabase
-      .from('settings').select('free_agent_registration').eq('id', 1).maybeSingle()
-    const freeMode = !!(settingsRow?.free_agent_registration)
-
-    if (!freeMode) {
-      // Paid mode: $10 USDC deploy fee — verify on-chain
-      if (!txHash || !userWallet) {
-        return res.status(400).json({ error: 'Transaction required to deploy agent' })
-      }
-      const { data: existingTx } = await supabase
-        .from('agents').select('ticker').eq('deploy_tx_hash', txHash).maybeSingle()
-      if (existingTx) {
-        return res.status(400).json({ error: 'Transaction already used' })
-      }
-      const { ethers } = require('ethers')
-      const provider = new ethers.JsonRpcProvider('https://mainnet.base.org')
-      const USDC_CONTRACT_ADDR = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
-      const tx = await provider.getTransaction(txHash)
-      const txReceipt = await provider.getTransactionReceipt(txHash)
-      if (!tx || !txReceipt || txReceipt.status !== 1) {
-        return res.status(400).json({ error: 'Transaction not confirmed on chain' })
-      }
-      if (tx.to?.toLowerCase() !== USDC_CONTRACT_ADDR.toLowerCase()) {
-        return res.status(400).json({ error: 'Invalid transaction — must be USDC transfer' })
-      }
-      const iface = new ethers.Interface(['function transfer(address to, uint256 amount)'])
-      const decoded = iface.parseTransaction({ data: tx.data })
-      if (decoded?.args[0]?.toLowerCase() !== process.env.HOUSE_WALLET_ADDRESS?.toLowerCase()) {
-        return res.status(400).json({ error: 'USDC not sent to house wallet' })
-      }
-      if (parseFloat(ethers.formatUnits(decoded?.args[1], 6)) < 10) {
-        return res.status(400).json({ error: 'Insufficient — $10 USDC required' })
-      }
-    }
+    // Registration is always free — agents fund their own real wallet instead
+    // of paying a deploy fee. (The $10 USDC charge has been removed.)
+    const freeMode = true
 
     const fullName = `Agent ${cleanName.charAt(0) + cleanName.slice(1).toLowerCase()}`;
+
+    // Generate a real EVM wallet for this agent on Base. The private key is
+    // returned to the user exactly once below and stored encrypted at rest.
+    const agentKeys = agentWallet.createAgentWallet();
 
     const insertData = {
       ticker: cleanTicker,
@@ -381,12 +422,12 @@ app.post('/api/agents/register', async (req, res) => {
       style: style,
       trading_strategy: tradingStrategy,
       price: 1.00,
-      wallet: 10.00,
+      wallet: 0,
       tasks_completed: 0,
       tasks_failed: 0,
       total_earned: 0,
       shares_owned: {},
-      status: 'pending_approval',
+      status: 'active',
       cycle_count: 0,
       created_by: createdBy,
       creator_name: creatorName,
@@ -394,6 +435,8 @@ app.post('/api/agents/register', async (req, res) => {
       avatar_url: avatarUrl,
       deploy_tx_hash: freeMode ? null : txHash,
       deploy_wallet:  freeMode ? (userWallet || null) : userWallet,
+      wallet_address: agentKeys.address,
+      wallet_private_key: agentWallet.encryptPrivateKey(agentKeys.privateKey),
     };
 
     console.log('Agent insert data:', JSON.stringify(insertData, null, 2));
@@ -416,14 +459,22 @@ app.post('/api/agents/register', async (req, res) => {
 
     await supabase.from('activity').insert({
       agent_ticker: cleanTicker,
-      action: `📝 NEW AGENT ${cleanTicker} submitted for approval`,
-      amount: 10.00,
+      action: `🚀 NEW AGENT ${cleanTicker} is now LIVE on the exchange`,
+      amount: 0,
       action_type: 'registration'
     });
 
-    io.emit('agent-registered', { agent });
+    io.emit('agent-registered', { agent: stripAgentSecrets(agent) });
 
-    res.json(agent);
+    // Return the agent (without the stored key) PLUS the freshly generated
+    // wallet so the frontend can show the private key to the user one time.
+    res.json({
+      ...stripAgentSecrets(agent),
+      agentWallet: {
+        address: agentKeys.address,
+        privateKey: agentKeys.privateKey,
+      },
+    });
   } catch (err) {
     console.error('Registration error:', err);
     res.status(500).json({ error: 'Registration failed' });
@@ -442,7 +493,7 @@ app.get('/api/stats', async (req, res) => {
     if (!agents || !agents.length) {
       return res.json({
         avgPrice: '1.0000', topAgent: null, riskAgent: null,
-        totalAgents: 0, activeAgents: 0, bankruptAgents: 0,
+        totalAgents: 0, activeAgents: 0,
         treasury: treasury || null, totalTrades: trades?.length || 0
       });
     }
@@ -460,7 +511,6 @@ app.get('/api/stats', async (req, res) => {
       riskAgent: riskAgent?.ticker,
       totalAgents: agents.length,
       activeAgents: agents.filter(a => a.status === 'active').length,
-      bankruptAgents: agents.filter(a => a.status === 'bankrupt').length,
       treasury,
       totalTrades: trades?.length || 0
     };
@@ -470,7 +520,7 @@ app.get('/api/stats', async (req, res) => {
   } catch (err) {
     res.json({
       avgPrice: '1.0000', topAgent: null, riskAgent: null,
-      totalAgents: 0, activeAgents: 0, bankruptAgents: 0,
+      totalAgents: 0, activeAgents: 0,
       treasury: null, totalTrades: 0
     });
   }
@@ -714,34 +764,6 @@ app.post('/api/exchange/price-update', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
-// Bankruptcy
-app.post('/api/exchange/bankruptcy', async (req, res) => {
-  try {
-    const { ticker, reason } = req.body
-    const { data: agent } = await supabase.from('agents').select('*').eq('ticker', ticker).single()
-    if (!agent) return res.status(404).json({ error: 'Agent not found' })
-
-    await supabase.from('agents').update({
-      status: 'bankrupt',
-      final_price: agent.price,
-      bankrupt_at: new Date().toISOString(),
-      updated_at: new Date()
-    }).eq('ticker', ticker)
-
-    await supabase.from('activity').insert({
-      agent_ticker: ticker,
-      action: `💀 WENT BANKRUPT at $${agent.price} — ${reason}`,
-      amount: 0,
-      action_type: 'bankruptcy'
-    })
-
-    io.emit('exchange-update', { type: 'bankruptcy', ticker, price: agent.price })
-    res.json({ success: true })
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
-})
 
 // Social post
 app.post('/api/exchange/social-post', async (req, res) => {
@@ -1040,6 +1062,41 @@ app.get('/api/hermes/status', (req, res) => {
   }
 });
 
+// Trending Base tokens (used by the real trading engine; also handy for the UI)
+app.get('/api/trending-tokens', async (req, res) => {
+  try {
+    const tokens = await trendingTokens.fetchTrendingTokens();
+    res.json(tokens);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Real on-chain token trades for a specific agent
+app.get('/api/agents/:ticker/token-trades', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('agent_token_trades')
+      .select('*')
+      .eq('agent_ticker', req.params.ticker)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Real trading engine status
+app.get('/api/real-trading/status', (req, res) => {
+  try {
+    res.json(realTradingEngine.status());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // WebSocket connection
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
@@ -1071,7 +1128,20 @@ server.listen(PORT, () => {
 
   console.log('🎲 Bet resolution scheduler started (runs every 5 min)');
 
-  // ── Hermes engine (Pyth Network price feeds) ──────────────────────────────
-  const hermesIntervalMs = parseInt(process.env.HERMES_INTERVAL_MS, 10) || 10 * 60 * 1000;
-  hermesEngine.start({ supabase, io, intervalMs: hermesIntervalMs });
+  // ── Hermes SIMULATION engine: DISABLED ────────────────────────────────────
+  // The platform now runs on REAL on-chain Base trading only. The Pyth-driven
+  // simulation (agent stock-price nudging, simulated share trades, auto social
+  // commentary) is intentionally NOT started. The hermesEngine module is still
+  // imported because realTradingEngine + walletBalances use its fetchPythPrices()
+  // helper purely for ETH→USD conversion (the real-money gate), not for trading.
+  // To re-enable the simulation, restore: hermesEngine.start({ supabase, io }).
+
+  // ── Real trading engine (agents swap ETH <-> trending Base tokens) ─────────
+  // Gated by REAL_TRADING_ENABLED; spends real money from each agent's wallet.
+  realTradingEngine.start({ supabase, io });
+
+  // ── Real wallet balance cache ──────────────────────────────────────────────
+  // Refreshes every agent's on-chain ETH balance (in USD) so all pages show
+  // real money via the decorated `wallet` field.
+  walletBalances.start({ supabase });
 });

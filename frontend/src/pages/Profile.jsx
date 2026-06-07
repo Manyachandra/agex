@@ -2,11 +2,11 @@ import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import { useAuth } from '../context/AuthContext'
-import { User, Trophy, Zap, TrendingUp, Clock, UserPlus, Edit2, Save, Loader, ChevronDown, ChevronUp, Plus, Minus, Gift, Wallet, ExternalLink } from 'lucide-react'
+import { User, Trophy, Zap, TrendingUp, Clock, UserPlus, Edit2, Save, Loader, ChevronDown, ChevronUp, Plus, Minus, Gift, Wallet, ExternalLink, Copy } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import AgentAvatar from '../components/AgentAvatar'
 import { useAccount, useChainId, useSendTransaction, useWaitForTransactionReceipt } from 'wagmi'
-import { parseUnits } from 'viem'
+import { parseUnits, parseEther } from 'viem'
 import { base } from 'wagmi/chains'
 
 import { asArray } from '../lib/api'
@@ -14,6 +14,7 @@ import { asArray } from '../lib/api'
 const API = import.meta.env.VITE_API_URL
 const USDC_CONTRACT = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
 const HOUSE_WALLET = import.meta.env.VITE_HOUSE_WALLET || '0x518E341C981D9C64E4c8292fF6C3E8F5055ba256'
+const MIN_ETH = 0.0001
 
 // USDC transfer ABI — only transfer function
 const USDC_ABI = [{
@@ -32,7 +33,6 @@ const STATUS_BADGES = {
   active: { label: 'Live on Exchange', cls: 'badge-green' },
   rejected: { label: 'Rejected', cls: 'badge-red' },
   suspended: { label: 'Suspended', cls: 'badge-gold' },
-  bankrupt: { label: 'Bankrupt', cls: 'badge-red' },
   dominant: { label: 'Dominant', cls: 'badge-green' },
 }
 
@@ -79,6 +79,7 @@ function FundModal({ agent, type, onClose, onSuccess, userId }) {
           userId,
           amount: parseFloat(amount),
           txHash: receipt.transactionHash,
+          asset: 'ETH',
         })
         if (res.data.success) {
           setSuccessData({ type: 'add', amount: parseFloat(amount), txHash: receipt.transactionHash })
@@ -97,21 +98,19 @@ function FundModal({ agent, type, onClose, onSuccess, userId }) {
   const handleAdd = async () => {
     setError('')
     const parsed = parseFloat(amount)
-    if (!parsed || parsed < 1) { setError('Minimum $1'); return }
+    if (!parsed || parsed < MIN_ETH) { setError(`Minimum ${MIN_ETH} ETH`); return }
+    if (!agent.wallet_address) { setError('This agent has no on-chain wallet'); return }
     if (!isConnected) { setError('Please connect your wallet'); return }
     if (!isOnBase) { setError('Please switch to Base network'); return }
 
     setLoading(true)
-    setTxStatus('Sending USDC to house wallet...')
+    setTxStatus('Sending ETH to agent wallet...')
     try {
-      // Encode USDC transfer call
-      const { encodeFunctionData } = await import('viem')
-      const data = encodeFunctionData({
-        abi: USDC_ABI,
-        functionName: 'transfer',
-        args: [HOUSE_WALLET, parseUnits(parsed.toFixed(6), 6)],
+      // Send native ETH directly to the agent's real on-chain wallet.
+      const hash = await sendTransactionAsync({
+        to: agent.wallet_address,
+        value: parseEther(String(parsed)),
       })
-      const hash = await sendTransactionAsync({ to: USDC_CONTRACT, data })
       setPendingTxHash(hash)
       setTxStatus('Waiting for confirmation...')
     } catch (err) {
@@ -172,7 +171,7 @@ function FundModal({ agent, type, onClose, onSuccess, userId }) {
               {successData.type === 'add' ? 'Funds Added!' : successData.type === 'remove' ? 'Funds Removed!' : 'Rewards Withdrawn!'}
             </div>
             <div style={{ fontSize: '0.78rem', color: 'var(--text3)', marginBottom: 10 }}>
-              {successData.type === 'add' && `$${successData.amount.toFixed(2)} added to agent wallet`}
+              {successData.type === 'add' && `${successData.amount} ETH sent to agent wallet`}
               {successData.type === 'remove' && `$${successData.amount.toFixed(2)} sent as USDC to your wallet`}
               {successData.type === 'reward' && `${successData.usdcPayout} USDC sent to your wallet`}
             </div>
@@ -210,15 +209,20 @@ function FundModal({ agent, type, onClose, onSuccess, userId }) {
             {/* Network warning */}
             {!isOnBase && isAdd && (
               <div style={{ background: 'rgba(255,100,0,0.1)', border: '1px solid rgba(255,100,0,0.3)', borderRadius: 8, padding: '8px 12px', marginBottom: 14, fontSize: '0.72rem', color: '#ff8844' }}>
-                ⚠️ Please switch to Base network to send USDC
+                ⚠️ Please switch to Base network to send ETH
               </div>
             )}
 
             {/* Info box */}
             {isAdd && (
               <div style={{ background: 'rgba(0,200,100,0.08)', border: '1px solid rgba(0,200,100,0.2)', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: '0.72rem' }}>
-                <div style={{ fontWeight: 700, marginBottom: 2 }}>USDC will be sent from your wallet</div>
-                <div style={{ color: 'var(--text3)' }}>Network: Base • Token: USDC • Min: $1</div>
+                <div style={{ fontWeight: 700, marginBottom: 2 }}>ETH will be sent to your agent's wallet</div>
+                <div style={{ color: 'var(--text3)', wordBreak: 'break-all' }}>Network: Base • Asset: ETH • Min: {MIN_ETH} ETH</div>
+                {agent.wallet_address && (
+                  <div style={{ color: 'var(--text3)', marginTop: 4 }}>
+                    To: <code style={{ color: 'var(--text2)' }}>{agent.wallet_address.slice(0, 10)}...{agent.wallet_address.slice(-6)}</code>
+                  </div>
+                )}
               </div>
             )}
             {isReward && (
@@ -235,13 +239,15 @@ function FundModal({ agent, type, onClose, onSuccess, userId }) {
 
             {/* Amount input */}
             <div style={{ marginBottom: 14 }}>
-              <label style={{ fontSize: '0.72rem', color: 'var(--text3)', display: 'block', marginBottom: 4 }}>Amount (USDC) — min $1</label>
+              <label style={{ fontSize: '0.72rem', color: 'var(--text3)', display: 'block', marginBottom: 4 }}>
+                {isAdd ? `Amount (ETH) — min ${MIN_ETH}` : 'Amount (USDC) — min $1'}
+              </label>
               <input
                 className="register-input"
-                type="number" min="1" step="1"
+                type="number" min={isAdd ? MIN_ETH : 1} step={isAdd ? '0.0001' : '1'}
                 value={amount}
                 onChange={e => setAmount(e.target.value)}
-                placeholder="Enter amount"
+                placeholder={isAdd ? 'Enter ETH amount' : 'Enter amount'}
                 style={{ width: '100%', padding: '8px 12px', fontSize: '0.85rem' }}
               />
             </div>
@@ -268,12 +274,12 @@ function FundModal({ agent, type, onClose, onSuccess, userId }) {
               <button
                 className="btn btn-primary"
                 onClick={isAdd ? handleAdd : handleRemoveOrReward}
-                disabled={isProcessing || !amount || parseFloat(amount) < 1}
+                disabled={isProcessing || !amount || parseFloat(amount) < (isAdd ? MIN_ETH : 1)}
                 style={{ flex: 1, padding: '9px', fontSize: '0.78rem', background: isRemove ? '#ff4444' : isReward ? '#f0a500' : 'var(--green)' }}
               >
                 {isProcessing
                   ? <><Loader size={13} className="auth-spinner" /> Processing...</>
-                  : isAdd ? 'Send USDC' : isRemove ? 'Remove Funds' : 'Withdraw USDC'
+                  : isAdd ? 'Add Funds' : isRemove ? 'Remove Funds' : 'Withdraw USDC'
                 }
               </button>
             </div>
@@ -419,11 +425,22 @@ export default function Profile() {
   const [showWithdrawAll, setShowWithdrawAll] = useState(false)
   const [activityPage, setActivityPage] = useState(1)
   const [fundHistory, setFundHistory] = useState([])
+  const [walletBalances, setWalletBalances] = useState({}) // { [ticker]: { address, eth, token, tokenSymbol, loading } }
 
   useEffect(() => {
     if (!user) { navigate('/login'); return }
     fetchData()
   }, [user, navigate])
+
+  // Lazily fetch an agent's real on-chain wallet balance when its panel opens.
+  useEffect(() => {
+    if (!expandedAgent) return
+    if (walletBalances[expandedAgent]) return
+    setWalletBalances(prev => ({ ...prev, [expandedAgent]: { loading: true } }))
+    axios.get(`${API}/api/agents/${expandedAgent}/wallet`)
+      .then(r => setWalletBalances(prev => ({ ...prev, [expandedAgent]: { ...r.data, loading: false } })))
+      .catch(() => setWalletBalances(prev => ({ ...prev, [expandedAgent]: { loading: false, error: true } })))
+  }, [expandedAgent]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchData = async () => {
     const [a, act, funds] = await Promise.all([
@@ -622,6 +639,77 @@ export default function Profile() {
                           </div>
                         </div>
                       </div>
+
+                      {/* Real on-chain wallet */}
+                      <div style={{ background: 'var(--bg)', borderRadius: 8, padding: '10px 12px', marginBottom: 14 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                          <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text3)' }}>REAL ON-CHAIN WALLET (BASE)</div>
+                          {(walletBalances[a.ticker]?.address || a.wallet_address) && (
+                            <a href={`https://basescan.org/address/${walletBalances[a.ticker]?.address || a.wallet_address}`}
+                              target="_blank" rel="noopener noreferrer"
+                              style={{ fontSize: '0.6rem', color: 'var(--green)', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                              BaseScan <ExternalLink size={9} />
+                            </a>
+                          )}
+                        </div>
+
+                        {(() => {
+                          const wb = walletBalances[a.ticker]
+                          const addr = wb?.address || a.wallet_address
+                          if (!addr) {
+                            return <div style={{ fontSize: '0.65rem', color: 'var(--text3)' }}>No wallet linked to this agent yet.</div>
+                          }
+                          return (
+                            <>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                                <code style={{ flex: 1, fontSize: '0.62rem', color: 'var(--text2)', wordBreak: 'break-all' }}>
+                                  {addr.slice(0, 10)}...{addr.slice(-8)}
+                                </code>
+                                <button onClick={() => { try { navigator.clipboard.writeText(addr) } catch { /* noop */ } }}
+                                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', padding: 2 }} title="Copy address">
+                                  <Copy size={12} />
+                                </button>
+                              </div>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                                <div style={{ background: 'var(--bg2)', borderRadius: 6, padding: '6px 8px', textAlign: 'center' }}>
+                                  <div style={{ fontSize: '0.55rem', color: 'var(--text3)' }}>ETH</div>
+                                  <div style={{ fontSize: '0.78rem', fontWeight: 800 }}>
+                                    {wb?.loading ? '…' : (wb?.eth ?? 0).toFixed(6)}
+                                  </div>
+                                </div>
+                                <div style={{ background: 'var(--bg2)', borderRadius: 6, padding: '6px 8px', textAlign: 'center' }}>
+                                  <div style={{ fontSize: '0.55rem', color: 'var(--text3)' }}>{wb?.tokenSymbol || 'AXIONET'}</div>
+                                  <div style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--green)' }}>
+                                    {wb?.loading ? '…' : (wb?.token ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                                  </div>
+                                </div>
+                              </div>
+                            </>
+                          )
+                        })()}
+                      </div>
+
+                      {/* Real token holdings (on-chain trending tokens) */}
+                      {(() => {
+                        const th = a.token_holdings || {}
+                        const entries = Object.entries(th).filter(([, v]) => v && parseFloat(v.amount) > 0)
+                        if (entries.length === 0) return null
+                        return (
+                          <div style={{ background: 'var(--bg)', borderRadius: 8, padding: '10px 12px', marginBottom: 14 }}>
+                            <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text3)', marginBottom: 8 }}>REAL TOKEN HOLDINGS (BASE)</div>
+                            {entries.map(([addr, v]) => (
+                              <div key={addr} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', borderBottom: '1px solid var(--border)' }}>
+                                <a href={`https://basescan.org/token/${addr}`} target="_blank" rel="noopener noreferrer"
+                                  style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--green)' }}>${v.symbol || '???'}</a>
+                                <div style={{ textAlign: 'right' }}>
+                                  <div style={{ fontSize: '0.68rem', fontWeight: 700 }}>{parseFloat(v.amount).toLocaleString(undefined, { maximumFractionDigits: 4 })}</div>
+                                  <div style={{ fontSize: '0.58rem', color: 'var(--text3)' }}>{parseFloat(v.eth_in || 0).toFixed(6)} ETH in</div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )
+                      })()}
 
                       {/* Holdings */}
                       <div style={{ marginBottom: 14 }}>

@@ -10,7 +10,6 @@ const MAX_BET_ETH = 0.1;
 // Payouts are now based on the real % price change at resolution time.
 const BET_TYPES = {
   stays_first_24h: { label: 'Stays #1 for 24 hours',        duration: 24 * 60 * 60 * 1000 },
-  bankrupt_24h:    { label: 'Goes bankrupt within 24 hours', duration: 24 * 60 * 60 * 1000 },
   price_up_next:   { label: 'Price goes up next cycle',      duration: 15 * 60 * 1000 },
   price_down_next: { label: 'Price goes down next cycle',    duration: 15 * 60 * 1000 },
 };
@@ -29,10 +28,6 @@ const BET_TYPES = {
 //  stays_first_24h — user bets agent keeps #1 rank
 //    RIGHT (still #1)   → bet + (bet × price gain %)      gain % of agent since bet
 //    WRONG (lost #1)    → bet − (bet × price drop %)
-//
-//  bankrupt_24h    — user bets agent goes bankrupt
-//    RIGHT (bankrupt)   → bet + (bet × price drop %)      big drop = big reward
-//    WRONG (survived)   → bet − (bet × price rise %)
 //
 //  ALL payouts are floored at 0 — user never loses more than their original bet.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -348,24 +343,6 @@ async function resolveBets(supabase, io) {
             const dropPct = Math.abs(Math.min(0, rawChangePct));
             payout = betAmount - (betAmount * dropPct);
             resultNote = `${bet.agent_ticker} lost #1 ❌ price ${(rawChangePct * 100).toFixed(2)}%`;
-          }
-          break;
-        }
-
-        case 'bankrupt_24h': {
-          const isBankrupt = agent.status === 'bankrupt';
-          if (isBankrupt) {
-            // RIGHT — bankrupt → price near 0 → big drop % = big reward
-            userWasRight = true;
-            const dropMagnitude = Math.abs(rawChangePct);
-            payout = betAmount + (betAmount * dropMagnitude);
-            resultNote = `${bet.agent_ticker} BANKRUPT ✅ price dropped ${(dropMagnitude * 100).toFixed(2)}%`;
-          } else {
-            // WRONG — survived → bet minus % price rose
-            userWasRight = false;
-            const risePct = Math.max(0, rawChangePct);
-            payout = betAmount - (betAmount * risePct);
-            resultNote = `${bet.agent_ticker} survived ❌ price +${(risePct * 100).toFixed(2)}%`;
           }
           break;
         }

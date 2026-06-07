@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import axios from 'axios'
-import { ArrowRight, Search, ChevronLeft, ChevronRight, Users } from 'lucide-react'
+import { Search, ChevronLeft, ChevronRight, Users, ExternalLink } from 'lucide-react'
 import { ScrollReveal, CountUp } from '../components/ScrollReveal'
 import { usePageFocus } from '../hooks/usePageFocus'
 import { asArray } from '../lib/api'
@@ -24,9 +24,9 @@ const AGENT_PAGE_SIZE = 24
 const SORT_OPTIONS = [
   { value: 'newest', label: 'Newest First' },
   { value: 'oldest', label: 'Oldest First' },
-  { value: 'cost_desc', label: 'Total Cost: High → Low' },
-  { value: 'shares_desc', label: 'Shares: High → Low' },
-  { value: 'fee_desc', label: 'Fee: High → Low' },
+  { value: 'eth_desc', label: 'ETH Amount: High → Low' },
+  { value: 'side_buy', label: 'Buys First' },
+  { value: 'side_sell', label: 'Sells First' },
 ]
 
 const AGENT_SORT_OPTIONS = [
@@ -54,7 +54,7 @@ export default function TradeHistory() {
 
   const fetchData = () => {
     Promise.all([
-      axios.get(`${API}/api/trades?limit=1000`).catch(() => ({ data: [] })),
+      axios.get(`${API}/api/token-trades?limit=1000`).catch(() => ({ data: [] })),
       axios.get(`${API}/api/agents`).catch(() => ({ data: [] })),
     ]).then(([tr, ag]) => {
       setTrades(asArray(tr.data))
@@ -97,15 +97,15 @@ export default function TradeHistory() {
 
   // ── Trades (filter by selected agent + sort + paginate) ──
   const filtered = selectedAgent
-    ? trades.filter(t => t.buyer_ticker === selectedAgent || t.seller_ticker === selectedAgent)
+    ? trades.filter(t => t.agent_ticker === selectedAgent)
     : trades
 
   const sorted = [...filtered].sort((a, b) => {
     switch (sortBy) {
       case 'oldest': return new Date(a.created_at) - new Date(b.created_at)
-      case 'cost_desc': return parseFloat(b.total_cost) - parseFloat(a.total_cost)
-      case 'shares_desc': return (b.shares || 0) - (a.shares || 0)
-      case 'fee_desc': return parseFloat(b.fee) - parseFloat(a.fee)
+      case 'eth_desc': return parseFloat(b.eth_amount || 0) - parseFloat(a.eth_amount || 0)
+      case 'side_buy': return (a.side === 'buy' ? 0 : 1) - (b.side === 'buy' ? 0 : 1)
+      case 'side_sell': return (a.side === 'sell' ? 0 : 1) - (b.side === 'sell' ? 0 : 1)
       case 'newest':
       default: return new Date(b.created_at) - new Date(a.created_at)
     }
@@ -116,9 +116,9 @@ export default function TradeHistory() {
   const pageStart = (pageClamped - 1) * TRADE_PAGE_SIZE
   const paginated = sorted.slice(pageStart, pageStart + TRADE_PAGE_SIZE)
 
-  const totalVolume = trades.reduce((s, t) => s + parseFloat(t.total_cost), 0)
-  const totalFees = trades.reduce((s, t) => s + parseFloat(t.fee), 0)
-  const avgTradeSize = trades.length ? totalVolume / trades.length : 0
+  const totalEthVolume = trades.reduce((s, t) => s + parseFloat(t.eth_amount || 0), 0)
+  const buyCount = trades.filter(t => t.side === 'buy').length
+  const sellCount = trades.filter(t => t.side === 'sell').length
 
   const btnStyle = (active, color) => ({
     background: active ? color : 'var(--bg2)',
@@ -133,22 +133,22 @@ export default function TradeHistory() {
     <div className="fade-in">
       <div className="page-header">
         <div className="page-title">Trade History</div>
-        <div className="page-subtitle">All agent-to-agent trades executed autonomously</div>
+        <div className="page-subtitle">Real on-chain ETH ↔ token swaps executed by agents on Base</div>
       </div>
 
       <div className="grid-4" style={{ marginBottom: '20px' }}>
         {[
-          { label: 'Total Trades', value: trades.length, color: 'var(--blue)', prefix: '', decimals: 0 },
-          { label: 'Total Volume', value: totalVolume, color: 'var(--green)', prefix: '$', decimals: 2 },
-          { label: 'Total Fees', value: totalFees, color: 'var(--red)', prefix: '$', decimals: 4 },
-          { label: 'Avg Trade Size', value: avgTradeSize, color: 'var(--gold)', prefix: '$', decimals: 2 },
+          { label: 'Total Trades', value: trades.length, color: 'var(--blue)', prefix: '', decimals: 0, suffix: '' },
+          { label: 'ETH Volume', value: totalEthVolume, color: 'var(--green)', prefix: '', decimals: 5, suffix: ' ETH' },
+          { label: 'Buys', value: buyCount, color: 'var(--green)', prefix: '', decimals: 0, suffix: '' },
+          { label: 'Sells', value: sellCount, color: 'var(--red)', prefix: '', decimals: 0, suffix: '' },
         ].map((s, i) => (
           <div key={i} className="card">
             <div style={{ fontSize: '0.6rem', color: 'var(--text3)', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '8px' }}>
               {s.label}
             </div>
             <div style={{ fontSize: '1.4rem', fontWeight: 800, color: s.color, fontFamily: "'Syne', sans-serif" }}>
-              <CountUp value={s.value} prefix={s.prefix} decimals={s.decimals} />
+              <CountUp value={s.value} prefix={s.prefix} decimals={s.decimals} suffix={s.suffix || ''} />
             </div>
           </div>
         ))}
@@ -200,7 +200,7 @@ export default function TradeHistory() {
           </button>
           {agentPaginated.map(a => (
             <button key={a.ticker} onClick={() => setSelectedAgent(a.ticker)} style={btnStyle(selectedAgent === a.ticker, AGENT_COLORS[a.ticker] || agentColor(a.ticker))}>
-              {a.ticker}{a.status === 'bankrupt' && ' 💀'}
+              {a.ticker}
             </button>
           ))}
           {agentPaginated.length === 0 && (
@@ -275,17 +275,18 @@ export default function TradeHistory() {
               <tr>
                 <th>#</th>
                 <th>TIME</th>
-                <th>BUYER</th>
-                <th></th>
-                <th>SELLER</th>
-                <th>SHARES</th>
-                <th>PRICE</th>
-                <th>TOTAL COST</th>
-                <th>FEE (2%)</th>
+                <th>AGENT</th>
+                <th>SIDE</th>
+                <th>TOKEN</th>
+                <th>TOKEN AMOUNT</th>
+                <th>ETH AMOUNT</th>
+                <th>TX</th>
               </tr>
             </thead>
             <tbody>
-              {paginated.map((trade, idx) => (
+              {paginated.map((trade, idx) => {
+                const isBuy = trade.side === 'buy'
+                return (
                 <tr key={trade.id}>
                   <td style={{ color: 'var(--text3)', fontSize: '0.7rem' }}>{pageStart + idx + 1}</td>
                   <td style={{ color: 'var(--text3)', fontSize: '0.7rem' }}>
@@ -294,31 +295,53 @@ export default function TradeHistory() {
                   </td>
                   <td>
                     <span style={{
-                      background: agentColor(trade.buyer_ticker) + '20',
-                      color: agentColor(trade.buyer_ticker),
+                      background: agentColor(trade.agent_ticker) + '20',
+                      color: agentColor(trade.agent_ticker),
                       padding: '3px 8px', borderRadius: '4px',
                       fontSize: '0.72rem', fontWeight: 700
                     }}>
-                      {trade.buyer_ticker}
+                      {trade.agent_ticker}
                     </span>
                   </td>
-                  <td><ArrowRight size={12} color="var(--text3)" /></td>
                   <td>
                     <span style={{
-                      background: agentColor(trade.seller_ticker) + '20',
-                      color: agentColor(trade.seller_ticker),
+                      background: isBuy ? '#edfaf4' : '#fff0f3',
+                      color: isBuy ? 'var(--green)' : 'var(--red)',
                       padding: '3px 8px', borderRadius: '4px',
-                      fontSize: '0.72rem', fontWeight: 700
+                      fontSize: '0.65rem', fontWeight: 800
                     }}>
-                      {trade.seller_ticker}
+                      {(trade.side || '').toUpperCase()}
                     </span>
                   </td>
-                  <td style={{ fontWeight: 600, color: 'var(--gold)' }}>{trade.shares}</td>
-                  <td style={{ fontWeight: 600, color: 'var(--text)' }}>${parseFloat(trade.price_at_trade).toFixed(4)}</td>
-                  <td style={{ fontWeight: 600, color: 'var(--green)' }}>${parseFloat(trade.total_cost).toFixed(2)}</td>
-                  <td style={{ color: 'var(--red)', fontSize: '0.72rem' }}>${parseFloat(trade.fee).toFixed(4)}</td>
+                  <td>
+                    {trade.token_address ? (
+                      <a href={`https://basescan.org/token/${trade.token_address}`} target="_blank" rel="noopener noreferrer"
+                        style={{ fontWeight: 700, color: 'var(--text)', textDecoration: 'none' }}>
+                        ${trade.token_symbol || '???'}
+                      </a>
+                    ) : (
+                      <span style={{ fontWeight: 700, color: 'var(--text)' }}>${trade.token_symbol || '???'}</span>
+                    )}
+                  </td>
+                  <td style={{ fontWeight: 600, color: 'var(--gold)' }}>
+                    {parseFloat(trade.token_amount || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                  </td>
+                  <td style={{ fontWeight: 600, color: isBuy ? 'var(--red)' : 'var(--green)' }}>
+                    {isBuy ? '-' : '+'}{parseFloat(trade.eth_amount || 0).toFixed(6)} ETH
+                  </td>
+                  <td>
+                    {trade.tx_hash ? (
+                      <a href={`https://basescan.org/tx/${trade.tx_hash}`} target="_blank" rel="noopener noreferrer"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--blue)', fontSize: '0.68rem', fontWeight: 600, textDecoration: 'none' }}>
+                        <ExternalLink size={11} /> View
+                      </a>
+                    ) : (
+                      <span style={{ color: 'var(--text3)', fontSize: '0.68rem' }}>—</span>
+                    )}
+                  </td>
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
           {sorted.length === 0 && (

@@ -5,6 +5,18 @@ import { asArray } from '../lib/api'
 
 const API = import.meta.env.VITE_API_URL
 
+function tokenInvestedEth(agent) {
+  const h = agent?.token_holdings
+  if (!h || typeof h !== 'object') return 0
+  return Object.values(h).reduce((s, t) => s + parseFloat(t?.eth_in || 0), 0)
+}
+
+function tokensHeldCount(agent) {
+  const h = agent?.token_holdings
+  if (!h || typeof h !== 'object') return 0
+  return Object.values(h).filter((t) => t && parseFloat(t.amount) > 0).length
+}
+
 export default function Ticker({ agents: liveAgents }) {
   const [agents, setAgents] = useState([])
 
@@ -18,16 +30,19 @@ export default function Ticker({ agents: liveAgents }) {
     }
   }, [liveAgents])
 
-  const items = [
-    ...agents.map(a => ({
-      type: 'agent',
-      ticker: a.ticker,
-      avatarUrl: a.avatar_url,
-      price: parseFloat(a.price).toFixed(4),
-      change: ((parseFloat(a.price) - 1.0) / 1.0 * 100).toFixed(2),
-      status: a.status
-    }))
-  ]
+  const ethUsd = (() => {
+    const ref = agents.find((a) => parseFloat(a.real_eth || 0) > 0 && parseFloat(a.real_usd || 0) > 0)
+    return ref ? parseFloat(ref.real_usd) / parseFloat(ref.real_eth) : 0
+  })()
+
+  const items = agents.map(a => ({
+    type: 'agent',
+    ticker: a.ticker,
+    avatarUrl: a.avatar_url,
+    portfolioUsd: parseFloat(a.real_usd || 0) + tokenInvestedEth(a) * ethUsd,
+    eth: parseFloat(a.real_eth || 0),
+    tokens: tokensHeldCount(a),
+  }))
 
   return (
     <div style={{
@@ -57,22 +72,9 @@ export default function Ticker({ agents: liveAgents }) {
               <>
                 <AgentAvatar ticker={item.ticker} avatarUrl={item.avatarUrl} size="xs" style={{ border: 'none' }} />
                 <span style={{ color: '#4a8fa8', fontWeight: 600 }}>{item.ticker}</span>
-                <span style={{ color: '#ffffff' }}>${item.price}</span>
-                <span style={{
-                  color: parseFloat(item.change) >= 0 ? '#00b87a' : '#f03358',
-                  fontWeight: 600
-                }}>
-                  {parseFloat(item.change) >= 0 ? '▲' : '▼'} {Math.abs(item.change)}%
-                </span>
-                {item.status === 'bankrupt' && (
-                  <span style={{
-                    fontSize: '0.6rem',
-                    background: '#f03358',
-                    color: 'white',
-                    padding: '1px 5px',
-                    borderRadius: '3px'
-                  }}>BANKRUPT</span>
-                )}
+                <span style={{ color: '#ffffff' }}>${item.portfolioUsd.toFixed(2)}</span>
+                <span style={{ color: '#00b87a', fontWeight: 600 }}>{item.eth.toFixed(5)} ETH</span>
+                <span style={{ color: '#f5a623', fontWeight: 600 }}>{item.tokens} token{item.tokens !== 1 ? 's' : ''}</span>
                 <span style={{ color: '#1e3040' }}>|</span>
               </>
             ) : (

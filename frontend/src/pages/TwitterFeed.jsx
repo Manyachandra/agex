@@ -15,7 +15,6 @@ export default function TwitterFeed() {
 
   const typeColors = {
     daily_summary: 'var(--blue)',
-    bankruptcy: 'var(--red)',
     dominant: 'var(--gold)',
     milestone: 'var(--green)',
     weekly: 'var(--purple)'

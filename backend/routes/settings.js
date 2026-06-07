@@ -4,7 +4,6 @@ const PARAM_META = {
   exchange_cycle_interval: { label: 'Exchange Cycle Interval', unit: 'minutes', min: 1, max: 60, type: 'int' },
   task_cycle_interval:     { label: 'Task Cycle Interval', unit: 'minutes', min: 1, max: 60, type: 'int' },
   trade_fee:               { label: 'Trade Fee', unit: '%', min: 0, max: 10, type: 'float' },
-  bankruptcy_threshold:    { label: 'Bankruptcy Threshold', unit: '$', min: 0.01, max: 1, type: 'float' },
   dominant_multiplier:     { label: 'Dominant Multiplier', unit: 'x avg', min: 1.1, max: 3, type: 'float' },
   dashboard_refresh_rate:  { label: 'Dashboard Refresh Rate', unit: 'seconds', min: 10, max: 300, type: 'int' },
 };
@@ -30,13 +29,41 @@ module.exports = function createSettingsRouter(supabase, io) {
     try {
       const allowed = [
         'exchange_cycle_interval', 'task_cycle_interval', 'trade_fee',
-        'bankruptcy_threshold', 'dominant_multiplier',
+        'dominant_multiplier',
         'allow_agent_suggestions', 'dashboard_refresh_rate',
-        'free_agent_registration'
+        'free_agent_registration',
+        // Real on-chain trading controls
+        'real_trading_enabled', 'real_trade_max_eth', 'real_trade_gas_buffer_eth',
+        'real_trade_max_agents', 'real_trade_min_usd', 'real_trade_sell_probability',
+        'real_trade_slippage', 'real_trade_interval_ms', 'real_trade_fee_pct',
+        'real_trade_take_profit_pct', 'real_trade_stop_loss_pct'
       ];
+      // Coercion + clamping for the real-trading numeric controls.
+      const NUM_BOUNDS = {
+        real_trade_max_eth:          { min: 0,    max: 100,    type: 'float' },
+        real_trade_gas_buffer_eth:   { min: 0,    max: 10,     type: 'float' },
+        real_trade_max_agents:       { min: 1,    max: 1000,   type: 'int' },
+        real_trade_min_usd:          { min: 0,    max: 100000, type: 'float' },
+        real_trade_sell_probability: { min: 0,    max: 1,      type: 'float' },
+        real_trade_slippage:         { min: 0.001, max: 0.5,   type: 'float' },
+        real_trade_interval_ms:      { min: 30000, max: 86400000, type: 'int' },
+        real_trade_fee_pct:          { min: 0,    max: 0.2,    type: 'float' },
+        real_trade_take_profit_pct:  { min: 0,    max: 10000,  type: 'float' },
+        real_trade_stop_loss_pct:    { min: 0,    max: 100,    type: 'float' },
+      };
       const updates = {};
       for (const key of allowed) {
-        if (req.body[key] !== undefined) updates[key] = req.body[key];
+        if (req.body[key] === undefined) continue;
+        let value = req.body[key];
+        if (key === 'real_trading_enabled' || key === 'free_agent_registration' || key === 'allow_agent_suggestions') {
+          value = !!value;
+        } else if (NUM_BOUNDS[key]) {
+          const b = NUM_BOUNDS[key];
+          value = b.type === 'int' ? parseInt(value, 10) : parseFloat(value);
+          if (Number.isNaN(value)) continue;
+          value = Math.max(b.min, Math.min(b.max, value));
+        }
+        updates[key] = value;
       }
       updates.updated_at = new Date().toISOString();
 
@@ -199,9 +226,15 @@ module.exports = function createSettingsRouter(supabase, io) {
 function getDefaults() {
   return {
     id: 1, exchange_cycle_interval: 10, task_cycle_interval: 15, trade_fee: 2,
-    bankruptcy_threshold: 0.10, dominant_multiplier: 1.5,
+    dominant_multiplier: 1.5,
     allow_agent_suggestions: true, dashboard_refresh_rate: 30,
-    free_agent_registration: false
+    free_agent_registration: false,
+    real_trading_enabled: false, real_trade_max_eth: 0.001,
+    real_trade_gas_buffer_eth: 0.0002, real_trade_max_agents: 5,
+    real_trade_min_usd: 2, real_trade_sell_probability: 0.35,
+    real_trade_slippage: 0.08, real_trade_interval_ms: 600000,
+    real_trade_fee_pct: 0.02, real_trade_take_profit_pct: 15,
+    real_trade_stop_loss_pct: 20
   };
 }
 

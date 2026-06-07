@@ -1,11 +1,25 @@
 import { useEffect, useState, useRef } from 'react'
 import axios from 'axios'
-import { LineChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { TrendingUp, TrendingDown, Zap, Wallet, Target, Search, ChevronLeft, ChevronRight } from 'lucide-react'
+import { BarChart, Bar, ResponsiveContainer, Tooltip, XAxis, YAxis, Cell } from 'recharts'
+import { TrendingUp, Coins, Wallet, Repeat, Search, ChevronLeft, ChevronRight } from 'lucide-react'
 import AgentAvatar from '../components/AgentAvatar'
 import { ScrollReveal, CountUp } from '../components/ScrollReveal'
 import { usePageFocus } from '../hooks/usePageFocus'
 import { asArray } from '../lib/api'
+
+// Sum of ETH cost basis invested across an agent's real token holdings.
+function tokenInvestedEth(agent) {
+  const h = agent?.token_holdings
+  if (!h || typeof h !== 'object') return 0
+  return Object.values(h).reduce((s, t) => s + parseFloat(t?.eth_in || 0), 0)
+}
+
+// Number of distinct real token positions currently held.
+function tokensHeldCount(agent) {
+  const h = agent?.token_holdings
+  if (!h || typeof h !== 'object') return 0
+  return Object.values(h).filter((t) => t && parseFloat(t.amount) > 0).length
+}
 
 const API = import.meta.env.VITE_API_URL
 const AGENT_COLORS = {
@@ -57,26 +71,35 @@ function AnimatedBar({ label, value, pct, color, delay = 0 }) {
 const PAGE_SIZE = 24
 
 const SORT_OPTIONS = [
-  { value: 'price_desc', label: 'Price: High → Low' },
-  { value: 'price_asc', label: 'Price: Low → High' },
+  { value: 'value_desc', label: 'Portfolio Value: High → Low' },
+  { value: 'value_asc', label: 'Portfolio Value: Low → High' },
+  { value: 'eth_desc', label: 'ETH Balance: High → Low' },
+  { value: 'trades_desc', label: 'Most Real Trades' },
   { value: 'ticker_asc', label: 'Ticker: A → Z' },
-  { value: 'tasks_desc', label: 'Tasks Won' },
-  { value: 'wallet_desc', label: 'Wallet: High → Low' },
 ]
 
 export default function AgentProfiles() {
   const [agents, setAgents] = useState([])
-  const [histories, setHistories] = useState({})
+  const [tradeCounts, setTradeCounts] = useState({})
+  const [tokenTrades, setTokenTrades] = useState({})
   const [selected, setSelected] = useState(null)
   const [search, setSearch] = useState('')
-  const [sortBy, setSortBy] = useState('price_desc')
+  const [sortBy, setSortBy] = useState('value_desc')
   const [page, setPage] = useState(1)
 
   const fetchAgents = () => {
-    axios.get(`${API}/api/agents`).then(r => {
-      const data = asArray(r.data)
+    Promise.all([
+      axios.get(`${API}/api/agents`).catch(() => ({ data: [] })),
+      axios.get(`${API}/api/token-trades?limit=1000`).catch(() => ({ data: [] })),
+    ]).then(([a, tt]) => {
+      const data = asArray(a.data)
       setAgents(data)
       setSelected(prev => prev ?? data[0]?.ticker)
+      const counts = {}
+      asArray(tt.data).forEach((t) => {
+        if (t.agent_ticker) counts[t.agent_ticker] = (counts[t.agent_ticker] || 0) + 1
+      })
+      setTradeCounts(counts)
     }).catch(() => setAgents([]))
   }
 
@@ -84,22 +107,29 @@ export default function AgentProfiles() {
   usePageFocus(fetchAgents)
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      axios.get(`${API}/api/agents`).then(r => setAgents(asArray(r.data))).catch(() => {})
-    }, 15000)
+    const interval = setInterval(fetchAgents, 15000)
     return () => clearInterval(interval)
   }, [])
 
-  // Lazily load price history only for the selected agent
+  // Lazily load real on-chain token trades for the selected agent
   useEffect(() => {
-    if (!selected || histories[selected]) return
-    axios.get(`${API}/api/price-history/${selected}`)
-      .then(r => setHistories(h => ({ ...h, [selected]: asArray(r.data) })))
-      .catch(() => setHistories(h => ({ ...h, [selected]: [] })))
-  }, [selected, histories])
+    if (!selected) return
+    axios.get(`${API}/api/agents/${selected}/token-trades`)
+      .then(r => setTokenTrades(t => ({ ...t, [selected]: asArray(r.data) })))
+      .catch(() => setTokenTrades(t => ({ ...t, [selected]: [] })))
+  }, [selected])
 
   // Reset to first page when search/sort changes
   useEffect(() => { setPage(1) }, [search, sortBy])
+
+  // Live ETH/USD derived from any funded agent (real_usd / real_eth).
+  const ethUsd = (() => {
+    const ref = agents.find(a => parseFloat(a.real_eth || 0) > 0 && parseFloat(a.real_usd || 0) > 0)
+    return ref ? parseFloat(ref.real_usd) / parseFloat(ref.real_eth) : 0
+  })()
+
+  // Real portfolio value (USD): on-chain ETH + token cost basis at live ETH price.
+  const portfolioUsd = (a) => parseFloat(a.real_usd || 0) + tokenInvestedEth(a) * ethUsd
 
   const filteredSorted = (() => {
     const q = search.trim().toLowerCase()
@@ -110,12 +140,12 @@ export default function AgentProfiles() {
       : agents
     return [...filtered].sort((a, b) => {
       switch (sortBy) {
-        case 'price_asc': return parseFloat(a.price) - parseFloat(b.price)
+        case 'value_asc': return portfolioUsd(a) - portfolioUsd(b)
+        case 'eth_desc': return parseFloat(b.real_eth || 0) - parseFloat(a.real_eth || 0)
+        case 'trades_desc': return (tradeCounts[b.ticker] || 0) - (tradeCounts[a.ticker] || 0)
         case 'ticker_asc': return a.ticker.localeCompare(b.ticker)
-        case 'tasks_desc': return (b.tasks_completed || 0) - (a.tasks_completed || 0)
-        case 'wallet_desc': return parseFloat(b.wallet || 0) - parseFloat(a.wallet || 0)
-        case 'price_desc':
-        default: return parseFloat(b.price) - parseFloat(a.price)
+        case 'value_desc':
+        default: return portfolioUsd(b) - portfolioUsd(a)
       }
     })
   })()
@@ -125,11 +155,7 @@ export default function AgentProfiles() {
   const paginated = filteredSorted.slice((pageClamped - 1) * PAGE_SIZE, pageClamped * PAGE_SIZE)
 
   const agent = agents.find(a => a.ticker === selected)
-  const history = histories[selected] || []
-  const successRate = agent
-    ? agent.tasks_completed + agent.tasks_failed === 0 ? 0
-      : Math.round((agent.tasks_completed / (agent.tasks_completed + agent.tasks_failed)) * 100)
-    : 0
+  const agentTrades = (selected && tokenTrades[selected]) || []
 
   return (
     <div className="fade-in">
@@ -199,7 +225,7 @@ export default function AgentProfiles() {
                 padding: '8px 20px', borderRadius: '8px', cursor: 'pointer',
                 fontFamily: "'Geist Mono', monospace", fontWeight: 700, fontSize: '0.8rem', transition: 'all 0.2s'
               }}>
-                {a.ticker}{a.status === 'bankrupt' && ' 💀'}
+                {a.ticker}
               </button>
             ))}
           </div>
@@ -260,16 +286,19 @@ export default function AgentProfiles() {
                   </div>
                 </div>
                 <div className="profile-hero-price" style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '0.52rem', color: 'var(--text3)', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '2px' }}>
+                    Portfolio Value
+                  </div>
                   <div style={{
                     fontFamily: "'Syne', sans-serif", fontSize: '2.2rem', fontWeight: 800,
-                    color: parseFloat(agent.price) >= 1 ? (AGENT_COLORS[agent.ticker] || agentColor(agent.ticker)) : 'var(--red)'
+                    color: (AGENT_COLORS[agent.ticker] || agentColor(agent.ticker))
                   }}>
-                    ${parseFloat(agent.price).toFixed(4)}
+                    ${portfolioUsd(agent).toFixed(2)}
                   </div>
-                  <div style={{ fontSize: '0.85rem', fontWeight: 600, color: parseFloat(agent.price) >= 1 ? 'var(--green)' : 'var(--red)' }}>
-                    {parseFloat(agent.price) >= 1 ? '▲' : '▼'} {Math.abs((parseFloat(agent.price) - 1) * 100).toFixed(2)}% since launch
+                  <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text2)' }}>
+                    {parseFloat(agent.real_eth || 0).toFixed(5)} ETH on Base
                   </div>
-                  <span className={`badge ${agent.status === 'bankrupt' ? 'badge-red' : 'badge-green'}`} style={{ marginTop: '8px', display: 'inline-block' }}>
+                  <span className="badge badge-green" style={{ marginTop: '8px', display: 'inline-block' }}>
                     {agent.status}
                   </span>
                 </div>
@@ -281,18 +310,14 @@ export default function AgentProfiles() {
           <ScrollReveal delay={100}>
             <div className="profile-top-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px', marginBottom: '16px', alignItems: 'start' }}>
 
-              {/* Left: Stats grid */}
+              {/* Left: Stats grid (real on-chain) */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px', alignContent: 'start' }}>
                 {[
-                  { label: 'Wallet Balance', value: `$${parseFloat(agent.wallet).toFixed(2)}`,       sub: 'available funds',   icon: Wallet,      color: 'var(--blue)',  bg: '#eff4ff' },
-                  { label: 'Total Earned',   value: `$${parseFloat(agent.total_earned).toFixed(2)}`, sub: 'by completed task', icon: TrendingUp,  color: 'var(--green)', bg: '#edfaf4' },
-                  { label: 'Tasks Won',      value: agent.tasks_completed,                           sub: 'completed',         icon: Target,      color: 'var(--green)', bg: '#edfaf4' },
-                  { label: 'Tasks Lost',     value: agent.tasks_failed,                              sub: 'failed',            icon: Zap,         color: 'var(--red)',   bg: '#fff0f3' },
-                  { label: 'Cycles Done',    value: agent.cycle_count || 0,                          sub: 'total cycles',      icon: Zap,         color: 'var(--blue)',  bg: '#eff4ff' },
-                  ...(agent.status === 'bankrupt' && agent.final_price
-                    ? [{ label: 'Final Price', value: `$${parseFloat(agent.final_price).toFixed(4)}`, sub: 'at bankruptcy', icon: TrendingDown, color: 'var(--red)', bg: '#fff0f3' }]
-                    : []
-                  ),
+                  { label: 'Wallet (USD)',     num: parseFloat(agent.real_usd || 0),     prefix: '$', suffix: '',     decimals: 2, sub: `${parseFloat(agent.real_eth || 0).toFixed(5)} ETH on Base`, icon: Wallet,     color: 'var(--blue)',  bg: '#eff4ff' },
+                  { label: 'Portfolio Value',  num: portfolioUsd(agent),                 prefix: '$', suffix: '',     decimals: 2, sub: 'ETH + token positions',                                    icon: TrendingUp, color: 'var(--green)', bg: '#edfaf4' },
+                  { label: 'Tokens Held',      num: tokensHeldCount(agent),              prefix: '',  suffix: '',     decimals: 0, sub: 'on-chain positions',                                       icon: Coins,      color: 'var(--gold)',  bg: '#fff8ed' },
+                  { label: 'Real Trades',      num: tradeCounts[agent.ticker] || 0,      prefix: '',  suffix: '',     decimals: 0, sub: 'ETH ↔ token swaps',                                        icon: Repeat,     color: 'var(--purple)',bg: '#f5f0ff' },
+                  { label: 'Invested',         num: tokenInvestedEth(agent),             prefix: '',  suffix: ' ETH', decimals: 5, sub: 'cost basis in tokens',                                     icon: Coins,      color: 'var(--blue)',  bg: '#eff4ff' },
                 ].map((s, i) => (
                   <div key={i} className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '10px' }}>
                     <div>
@@ -300,11 +325,7 @@ export default function AgentProfiles() {
                         {s.label}
                       </div>
                       <div style={{ fontSize: '0.95rem', fontWeight: 800, color: s.color, fontFamily: "'Syne', sans-serif", marginBottom: '2px' }}>
-                        <CountUp
-                          value={parseFloat(s.value.toString().replace(/[^0-9.]/g, '')) || 0}
-                          prefix={s.value.toString().startsWith('$') ? '$' : ''}
-                          decimals={s.value.toString().includes('.') ? 2 : 0}
-                        />
+                        <CountUp value={s.num} prefix={s.prefix} suffix={s.suffix} decimals={s.decimals} />
                       </div>
                       <div style={{ fontSize: '0.6rem', color: 'var(--text3)' }}>{s.sub}</div>
                     </div>
@@ -315,78 +336,150 @@ export default function AgentProfiles() {
                 ))}
               </div>
 
-              {/* Right: Holdings */}
+              {/* Right: Real on-chain coins traded on Base */}
               <div>
-                {agent.shares_owned && typeof agent.shares_owned === 'object' && Object.keys(agent.shares_owned).length > 0 ? (
-                  <div className="card">
-                    <div className="card-header">
-                      <div className="card-title">Holdings</div>
-                      <span className="badge badge-blue">SHARES</span>
+                {(() => {
+                  const th = agent.token_holdings && typeof agent.token_holdings === 'object' ? agent.token_holdings : {}
+                  const holdingEntries = Object.entries(th).filter(([, v]) => v && parseFloat(v.amount) > 0)
+                  const trades = (tokenTrades[agent.ticker] || []).slice(0, 8)
+
+                  if (holdingEntries.length === 0 && trades.length === 0) {
+                    return (
+                      <div className="card" style={{ color: 'var(--text3)', fontSize: '0.78rem', textAlign: 'center', padding: '24px' }}>
+                        No real coins traded yet
+                      </div>
+                    )
+                  }
+
+                  return (
+                    <div className="card">
+                      <div className="card-header">
+                        <div className="card-title">Coins Traded (Base)</div>
+                        <span className="badge badge-green">ON-CHAIN</span>
+                      </div>
+
+                      {holdingEntries.length > 0 && (
+                        <>
+                          <div style={{ fontSize: '0.6rem', fontWeight: 700, color: 'var(--text3)', letterSpacing: '1px', marginBottom: '8px' }}>CURRENTLY HOLDING</div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: trades.length ? '14px' : 0 }}>
+                            {holdingEntries.map(([addr, v]) => (
+                              <a key={addr} href={`https://basescan.org/token/${addr}`} target="_blank" rel="noopener noreferrer"
+                                style={{
+                                  display: 'flex', alignItems: 'center', gap: '6px',
+                                  padding: '6px 10px', background: 'var(--bg3)', borderRadius: '8px',
+                                  border: '1px solid var(--border)', textDecoration: 'none'
+                                }}>
+                                <span style={{ fontWeight: 700, color: 'var(--green)' }}>${v.symbol || '???'}</span>
+                                <span style={{ color: 'var(--text2)', fontSize: '0.8rem' }}>
+                                  {parseFloat(v.amount).toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                                  <span style={{ color: 'var(--text3)', marginLeft: '6px' }}>{parseFloat(v.eth_in || 0).toFixed(5)} ETH in</span>
+                                </span>
+                              </a>
+                            ))}
+                          </div>
+                        </>
+                      )}
+
+                      {trades.length > 0 && (
+                        <>
+                          <div style={{ fontSize: '0.6rem', fontWeight: 700, color: 'var(--text3)', letterSpacing: '1px', marginBottom: '8px' }}>RECENT TRADES</div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            {trades.map(t => (
+                              <a key={t.id} href={t.tx_hash ? `https://basescan.org/tx/${t.tx_hash}` : undefined}
+                                target="_blank" rel="noopener noreferrer"
+                                style={{
+                                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                  padding: '5px 0', borderBottom: '1px solid var(--border)', textDecoration: 'none'
+                                }}>
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  <span style={{
+                                    fontSize: '0.55rem', fontWeight: 800, padding: '1px 6px', borderRadius: '4px',
+                                    background: t.side === 'buy' ? '#edfaf4' : '#fff0f3',
+                                    color: t.side === 'buy' ? 'var(--green)' : 'var(--red)'
+                                  }}>{(t.side || '').toUpperCase()}</span>
+                                  <span style={{ fontWeight: 700, fontSize: '0.78rem' }}>${t.token_symbol || '???'}</span>
+                                </span>
+                                <span style={{ color: 'var(--text3)', fontSize: '0.68rem' }}>
+                                  {parseFloat(t.eth_amount || 0).toFixed(5)} ETH
+                                </span>
+                              </a>
+                            ))}
+                          </div>
+                        </>
+                      )}
                     </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
-                      {Object.entries(agent.shares_owned).map(([ticker, o]) => (
-                        <div key={ticker} style={{
-                          display: 'flex', alignItems: 'center', gap: '8px',
-                          padding: '8px 12px', background: 'var(--bg3)', borderRadius: '8px',
-                          border: '1px solid var(--border)'
-                        }}>
-                          <span style={{ fontWeight: 700, color: AGENT_COLORS[ticker] || agentColor(ticker) }}>{ticker}</span>
-                          <span style={{ color: 'var(--text2)', fontSize: '0.85rem' }}>
-                            {o?.shares ?? o} share{(o?.shares ?? o) !== 1 ? 's' : ''}
-                            {o?.avg_buy_price != null && (
-                              <span style={{ color: 'var(--text3)', marginLeft: '6px' }}>@ ${parseFloat(o.avg_buy_price).toFixed(4)} avg</span>
-                            )}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="card" style={{ color: 'var(--text3)', fontSize: '0.78rem', textAlign: 'center', padding: '24px' }}>
-                    No holdings yet
-                  </div>
-                )}
+                  )
+                })()}
               </div>
 
             </div>
           </ScrollReveal>
 
-          {/* ROW 2: Performance Metrics (left) + Price History (right) */}
+          {/* ROW 2: Trading Activity (left) + Recent Trade Volume (right) */}
           <ScrollReveal delay={200}>
-            <div className="profile-bottom-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px', marginBottom: '16px' }}>
+            {(() => {
+              const buyCount = agentTrades.filter(t => t.side === 'buy').length
+              const sellCount = agentTrades.filter(t => t.side === 'sell').length
+              const total = agentTrades.length
+              const ethVolume = agentTrades.reduce((s, t) => s + parseFloat(t.eth_amount || 0), 0)
+              // Oldest → newest, last 20, for the volume chart.
+              const chartData = [...agentTrades]
+                .slice(0, 20)
+                .reverse()
+                .map((t, i) => ({ n: i + 1, eth: parseFloat(t.eth_amount || 0), side: t.side, symbol: t.token_symbol }))
 
-              {/* Left: Performance Metrics */}
-              <div className="card">
-                <div className="card-header">
-                  <div className="card-title">Performance Metrics</div>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  {[
-                    { label: 'Success Rate',      value: agent.ticker === 'BRAHMA' ? 'N/A — Investor Only' : `${successRate}%`, pct: successRate,                                        color: successRate >= 70 ? 'var(--green)' : successRate >= 50 ? 'var(--gold)' : 'var(--red)' },
-                    { label: 'Wallet Health',      value: `$${parseFloat(agent.wallet).toFixed(2)} / $10.00`,                    pct: Math.min(parseFloat(agent.wallet) * 10, 100),      color: parseFloat(agent.wallet) < 1 ? 'var(--red)' : 'var(--green)' },
-                    { label: 'Earnings Progress',  value: `$${parseFloat(agent.total_earned).toFixed(2)} earned`,                pct: Math.min(parseFloat(agent.total_earned) * 5, 100), color: 'var(--blue)' },
-                  ].map((m, i) => (
-                    <AnimatedBar key={`${agent.ticker}-${i}`} label={m.label} value={m.value} pct={m.pct} color={m.color} delay={i * 150} />
-                  ))}
-                </div>
-              </div>
+              return (
+                <div className="profile-bottom-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px', marginBottom: '16px' }}>
 
-              {/* Right: Price History */}
-              <div className="card">
-                <div className="card-header">
-                  <div className="card-title">Price History</div>
-                </div>
-                <ResponsiveContainer width="100%" height={160}>
-                  <LineChart data={history.map((p, i) => ({ cycle: i + 1, price: parseFloat(p.price) }))}>
-                    <XAxis dataKey="cycle" tick={{ fontSize: 9, fill: '#8896a8' }} />
-                    <YAxis tick={{ fontSize: 9, fill: '#8896a8' }} domain={['auto', 'auto']} />
-                    <Tooltip contentStyle={{ background: '#0d1117', border: '1px solid #1e2730', borderRadius: '8px', fontSize: '0.7rem' }} />
-                    <Line type="monotone" dataKey="price" stroke={AGENT_COLORS[agent.ticker] || agentColor(agent.ticker)} strokeWidth={2} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
+                  {/* Left: Trading Activity */}
+                  <div className="card">
+                    <div className="card-header">
+                      <div className="card-title">Trading Activity</div>
+                      <span className="badge badge-green">ON-CHAIN</span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                      {[
+                        { label: 'Buy Orders',       value: `${buyCount}`,                  pct: total ? (buyCount / total) * 100 : 0,        color: 'var(--green)' },
+                        { label: 'Sell Orders',      value: `${sellCount}`,                 pct: total ? (sellCount / total) * 100 : 0,       color: 'var(--red)' },
+                        { label: 'Total ETH Traded', value: `${ethVolume.toFixed(5)} ETH`,  pct: Math.min((ethVolume / 0.01) * 100, 100),     color: 'var(--blue)' },
+                      ].map((m, i) => (
+                        <AnimatedBar key={`${agent.ticker}-${i}`} label={m.label} value={m.value} pct={m.pct} color={m.color} delay={i * 150} />
+                      ))}
+                    </div>
+                  </div>
 
-            </div>
+                  {/* Right: Recent Trade Volume (ETH per trade, buy=green / sell=red) */}
+                  <div className="card">
+                    <div className="card-header">
+                      <div className="card-title">Recent Trade Volume</div>
+                      <span className="badge badge-gray">{total} trades</span>
+                    </div>
+                    {chartData.length === 0 ? (
+                      <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text3)', fontSize: '0.78rem' }}>
+                        No on-chain trades yet
+                      </div>
+                    ) : (
+                      <ResponsiveContainer width="100%" height={160}>
+                        <BarChart data={chartData}>
+                          <XAxis dataKey="n" tick={{ fontSize: 9, fill: '#8896a8' }} />
+                          <YAxis tick={{ fontSize: 9, fill: '#8896a8' }} domain={['auto', 'auto']} />
+                          <Tooltip
+                            contentStyle={{ background: '#0d1117', border: '1px solid #1e2730', borderRadius: '8px', fontSize: '0.7rem' }}
+                            formatter={(v, _n, p) => [`${parseFloat(v).toFixed(6)} ETH`, `${(p?.payload?.side || '').toUpperCase()} $${p?.payload?.symbol || ''}`]}
+                          />
+                          <Bar dataKey="eth" radius={[3, 3, 0, 0]}>
+                            {chartData.map((d, i) => (
+                              <Cell key={i} fill={d.side === 'buy' ? '#00b87a' : '#f03358'} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
+                  </div>
+
+                </div>
+              )
+            })()}
           </ScrollReveal>
 
         </div>

@@ -3,10 +3,9 @@ import { useLocation } from 'react-router-dom'
 import { Menu, Wifi, WifiOff, RefreshCw, Clock, Wallet, AlertTriangle } from 'lucide-react'
 import axios from 'axios'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
-import { asArray } from '../lib/api'
 
 const API = import.meta.env.VITE_API_URL
-const HERMES_ACTIVE_THRESHOLD_MS = 15 * 60 * 1000 // 15 minutes
+const TRADING_ACTIVE_THRESHOLD_MS = 30 * 60 * 1000 // 30 minutes
 
 const pageTitles = {
   '/': { title: 'Dashboard', subtitle: 'Live exchange overview' },
@@ -23,7 +22,8 @@ const pageTitles = {
 export default function Header({ connected, lastUpdate, onMobileOpen }) {
   const location = useLocation()
   const [time, setTime] = useState(new Date())
-  const [hermesActive, setHermesActive] = useState(false) // true = active (< 15 min), false = idle
+  const [tradingEnabled, setTradingEnabled] = useState(false)
+  const [tradingLive, setTradingLive] = useState(false)
   const page = pageTitles[location.pathname] || pageTitles['/']
 
   useEffect(() => {
@@ -32,20 +32,20 @@ export default function Header({ connected, lastUpdate, onMobileOpen }) {
   }, [])
 
   useEffect(() => {
-    const checkHermes = () => {
-      axios.get(`${API}/api/agents`).then((r) => {
-        const agents = asArray(r.data)
-        const dates = agents.map((a) => a.last_cycle_at).filter(Boolean)
-        if (dates.length === 0) {
-          setHermesActive(false)
-          return
+    const checkTrading = () => {
+      axios.get(`${API}/api/real-trading/status`).then((r) => {
+        const s = r.data || {}
+        setTradingEnabled(!!s.enabled)
+        if (s.lastRunAt) {
+          const last = new Date(s.lastRunAt).getTime()
+          setTradingLive(!!s.enabled && Date.now() - last < TRADING_ACTIVE_THRESHOLD_MS)
+        } else {
+          setTradingLive(false)
         }
-        const latest = Math.max(...dates.map((d) => new Date(d.endsWith('Z') || d.includes('+') ? d : d + 'Z').getTime()))
-        setHermesActive(Date.now() - latest < HERMES_ACTIVE_THRESHOLD_MS)
-      }).catch(() => setHermesActive(false))
+      }).catch(() => { setTradingEnabled(false); setTradingLive(false) })
     }
-    checkHermes()
-    const interval = setInterval(checkHermes, 60000)
+    checkTrading()
+    const interval = setInterval(checkTrading, 60000)
     return () => clearInterval(interval)
   }, [])
 
@@ -61,10 +61,10 @@ export default function Header({ connected, lastUpdate, onMobileOpen }) {
         </div>
       </div>
       <div className="header-right">
-      <div className={`hermes-indicator ${hermesActive ? 'hermes-indicator--active' : 'hermes-indicator--idle'}`}>
-  <span className={`hermes-dot ${hermesActive ? 'hermes-dot--active' : 'hermes-dot--idle'}`} />
-  <span className="hermes-emoji">📡</span>
-  <span className="hermes-label">{hermesActive ? 'Hermes Active' : 'Hermes Idle'}</span>
+      <div className={`hermes-indicator ${tradingEnabled ? 'hermes-indicator--active' : 'hermes-indicator--idle'}`}>
+  <span className={`hermes-dot ${tradingEnabled ? 'hermes-dot--active' : 'hermes-dot--idle'}`} />
+  <span className="hermes-emoji">⛓️</span>
+  <span className="hermes-label">{tradingEnabled ? (tradingLive ? 'Trading Live' : 'Trading On') : 'Trading Off'}</span>
 </div>
 
         <ConnectButton.Custom>

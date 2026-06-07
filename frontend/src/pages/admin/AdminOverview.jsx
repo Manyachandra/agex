@@ -1,14 +1,12 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
-import { Users, Zap, Clock, Landmark, CheckCircle, XCircle, Loader } from 'lucide-react'
-import AgentAvatar from '../../components/AgentAvatar'
+import { Users, Zap, Landmark } from 'lucide-react'
 
 const API = import.meta.env.VITE_API_URL
 
 export default function AdminOverview() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [actionLoading, setActionLoading] = useState({})
 
   useEffect(() => {
     axios.get(`${API}/api/admin/overview`)
@@ -16,20 +14,6 @@ export default function AdminOverview() {
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
-
-  const updateStatus = async (ticker, status) => {
-    setActionLoading(p => ({ ...p, [ticker]: status }))
-    try {
-      await axios.put(`${API}/api/admin/agents/${ticker}/status`, { status })
-      setData(prev => ({
-        ...prev,
-        pendingAgents: prev.pendingAgents.filter(a => a.ticker !== ticker),
-        pendingApprovals: Math.max(0, prev.pendingApprovals - 1),
-        activeAgents: status === 'active' ? prev.activeAgents + 1 : prev.activeAgents,
-      }))
-    } catch {}
-    setActionLoading(p => ({ ...p, [ticker]: null }))
-  }
 
   if (loading) {
     return <div className="fade-in" style={{ textAlign: 'center', padding: 60, color: 'var(--text3)' }}>Loading overview...</div>
@@ -48,7 +32,6 @@ export default function AdminOverview() {
         {[
           { label: 'Total Users', value: data.totalUsers, icon: Users, color: 'var(--blue)' },
           { label: 'Total Agents', value: data.totalAgents, icon: Zap, color: 'var(--green)' },
-          { label: 'Pending Approvals', value: data.pendingApprovals, icon: Clock, color: data.pendingApprovals > 0 ? 'var(--gold)' : 'var(--text3)' },
           { label: 'Active Agents', value: data.activeAgents, icon: Zap, color: 'var(--green)' },
           { label: 'Total Trades', value: data.totalTrades, icon: Zap, color: 'var(--purple)' },
           { label: 'Treasury', value: `$${parseFloat(data.treasuryBalance).toFixed(2)}`, icon: Landmark, color: 'var(--green)' },
@@ -62,36 +45,6 @@ export default function AdminOverview() {
       </div>
 
       <div className="grid-2" style={{ gap: 20 }}>
-        {/* Pending Agents */}
-        <div className="card" style={{ border: data.pendingAgents.length > 0 ? '1px solid var(--gold)' : undefined }}>
-          <div className="card-header">
-            <div className="card-title">Pending Agents</div>
-            {data.pendingAgents.length > 0 && <span className="badge badge-gold">{data.pendingAgents.length}</span>}
-          </div>
-          {data.pendingAgents.length === 0 && (
-            <div style={{ textAlign: 'center', padding: 20, color: 'var(--text3)', fontSize: '0.72rem' }}>No pending agents</div>
-          )}
-          {data.pendingAgents.map(a => (
-            <div key={a.ticker} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
-              <AgentAvatar ticker={a.ticker} avatarUrl={a.avatar_url} size="sm" />
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '0.78rem', fontWeight: 700 }}>${a.ticker} — {a.full_name}</div>
-                <div style={{ fontSize: '0.62rem', color: 'var(--text3)' }}>{a.style} · {a.creator_name || 'Unknown'}</div>
-              </div>
-              <div style={{ display: 'flex', gap: 4 }}>
-                <button className="btn" onClick={() => updateStatus(a.ticker, 'active')} disabled={!!actionLoading[a.ticker]}
-                  style={{ background: 'var(--green)', color: 'white', padding: '4px 10px', fontSize: '0.62rem', gap: 4 }}>
-                  {actionLoading[a.ticker] === 'active' ? <Loader size={10} className="auth-spinner" /> : <CheckCircle size={10} />} Approve
-                </button>
-                <button className="btn" onClick={() => updateStatus(a.ticker, 'rejected')} disabled={!!actionLoading[a.ticker]}
-                  style={{ background: 'var(--red)', color: 'white', padding: '4px 10px', fontSize: '0.62rem', gap: 4 }}>
-                  {actionLoading[a.ticker] === 'rejected' ? <Loader size={10} className="auth-spinner" /> : <XCircle size={10} />} Reject
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-
         {/* Recent Signups */}
         <div className="card">
           <div className="card-header">

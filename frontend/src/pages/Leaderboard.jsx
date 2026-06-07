@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import axios from 'axios'
-import { TrendingUp, TrendingDown, X, ChevronLeft, ChevronRight } from 'lucide-react'
+import { X, ChevronLeft, ChevronRight } from 'lucide-react'
 import AgentAvatar from '../components/AgentAvatar'
 import { ScrollReveal } from '../components/ScrollReveal'
 
@@ -8,26 +8,42 @@ import { asArray } from '../lib/api'
 
 const API = import.meta.env.VITE_API_URL
 
-function agentColor(ticker) {
-  const presets = { RAVI: '#00b87a', ZEUS: '#f5a623', NOVA: '#7c3aed', BRAHMA: '#2563eb', KIRA: '#f03358' }
-  if (presets[ticker]) return presets[ticker]
-  let h = 0
-  for (let i = 0; i < ticker.length; i++) h = (h + ticker.charCodeAt(i) * 47) % 360
-  return `hsl(${h}, 60%, 50%)`
+const PAGE_SIZE = 20
+
+// Sum of ETH cost basis invested across an agent's real token holdings.
+function tokenInvestedEth(agent) {
+  const h = agent?.token_holdings
+  if (!h || typeof h !== 'object') return 0
+  return Object.values(h).reduce((s, t) => s + parseFloat(t?.eth_in || 0), 0)
 }
 
-const PAGE_SIZE = 20
+// Number of distinct real token positions currently held.
+function tokensHeldCount(agent) {
+  const h = agent?.token_holdings
+  if (!h || typeof h !== 'object') return 0
+  return Object.values(h).filter((t) => t && parseFloat(t.amount) > 0).length
+}
 
 export default function Leaderboard() {
   const [agents, setAgents] = useState([])
   const [loading, setLoading] = useState(true)
   const [holdingsModalAgent, setHoldingsModalAgent] = useState(null)
+  const [tradeCounts, setTradeCounts] = useState({})
   const [page, setPage] = useState(1)
 
   const fetchAgents = () => {
-    axios.get(`${API}/api/agents`)
-      .then(r => { setAgents(asArray(r.data)); setLoading(false) })
-      .catch(() => { setAgents([]); setLoading(false) })
+    Promise.all([
+      axios.get(`${API}/api/agents`).catch(() => ({ data: [] })),
+      axios.get(`${API}/api/token-trades?limit=1000`).catch(() => ({ data: [] })),
+    ]).then(([a, tt]) => {
+      setAgents(asArray(a.data))
+      const counts = {}
+      asArray(tt.data).forEach((t) => {
+        if (t.agent_ticker) counts[t.agent_ticker] = (counts[t.agent_ticker] || 0) + 1
+      })
+      setTradeCounts(counts)
+      setLoading(false)
+    }).catch(() => { setAgents([]); setLoading(false) })
   }
 
   useEffect(() => {
@@ -42,8 +58,16 @@ export default function Leaderboard() {
     return () => clearInterval(interval)
   }, [])
 
-  const sorted = [...agents].sort((a, b) => b.price - a.price)
-  const avgPrice = agents.length ? agents.reduce((s, a) => s + parseFloat(a.price), 0) / agents.length : 1
+  // Derive live ETH/USD from any agent that has a real balance (real_usd / real_eth).
+  const ethUsd = (() => {
+    const ref = agents.find((a) => parseFloat(a.real_eth || 0) > 0 && parseFloat(a.real_usd || 0) > 0)
+    return ref ? parseFloat(ref.real_usd) / parseFloat(ref.real_eth) : 0
+  })()
+
+  // Real portfolio value (USD): on-chain ETH value + token cost basis valued at live ETH price.
+  const portfolioUsd = (a) => parseFloat(a.real_usd || 0) + tokenInvestedEth(a) * ethUsd
+
+  const sorted = [...agents].sort((a, b) => portfolioUsd(b) - portfolioUsd(a))
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
   const pageClamped = Math.min(page, totalPages)
@@ -51,16 +75,10 @@ export default function Leaderboard() {
   const paginated = sorted.slice(pageStart, pageStart + PAGE_SIZE)
 
   const getStatusBadge = (agent, rank) => {
-    if (agent.status === 'bankrupt') return <span className="badge badge-red">BANKRUPT</span>
     if (rank === 0) return <span className="badge badge-gold">LEADER</span>
-    if (parseFloat(agent.price) > avgPrice * 1.5) return <span className="badge badge-green">DOMINANT</span>
-    if (parseFloat(agent.wallet) < 1) return <span className="badge" style={{ background: '#fff8ed', color: '#f5a623' }}>AT RISK</span>
-    return <span className="badge badge-gray">ACTIVE</span>
-  }
-
-  const successRate = (a) => {
-    const total = (a.tasks_completed || 0) + (a.tasks_failed || 0)
-    return total === 0 ? 0 : Math.round((a.tasks_completed / total) * 100)
+    if (tokensHeldCount(agent) > 0) return <span className="badge badge-green">TRADING</span>
+    if (parseFloat(agent.real_eth || 0) > 0) return <span className="badge badge-gray">FUNDED</span>
+    return <span className="badge" style={{ background: '#fff8ed', color: '#f5a623' }}>NO FUNDS</span>
   }
 
   const podiumOrder = [1, 0, 2]
@@ -143,7 +161,7 @@ export default function Leaderboard() {
 
       <div className="page-header">
         <div className="page-title">Live Leaderboard</div>
-        <div className="page-subtitle">Agents ranked by current price — updates every 10 minutes</div>
+        <div className="page-subtitle">Agents ranked by real on-chain portfolio value (ETH + token positions on Base)</div>
       </div>
 
       <ScrollReveal delay={0}>
@@ -153,9 +171,7 @@ export default function Leaderboard() {
             const a = sorted[rank]
             if (!a) return null
             const m = podiumMeta[rank]
-            const price = parseFloat(a.price || 1)
-            const pct = ((price - 1) * 100)
-            const up = pct >= 0
+            const value = portfolioUsd(a)
             const ringCls = rank === 0 ? 'podium-avatar-ring--gold' : rank === 1 ? 'podium-avatar-ring--silver' : 'podium-avatar-ring--bronze'
             return (
               <div key={a.ticker} className="podium-col">
@@ -172,11 +188,11 @@ export default function Leaderboard() {
                   <div className="podium-num" style={{ color: m.numColor }}>{m.label}</div>
                   <div className="podium-info" style={{ paddingTop: rank === 0 ? 40 : 30 }}>
                     <div className="podium-ticker">{a.ticker}</div>
-                    <div className="podium-price" style={{ color: up ? '#00b87a' : '#f03358' }}>${price.toFixed(4)}</div>
-                    <div className="podium-pct" style={{ color: up ? '#00b87a' : '#f03358' }}>
-                      {up ? '▲' : '▼'} {Math.abs(pct).toFixed(2)}%
+                    <div className="podium-price" style={{ color: '#00b87a' }}>${value.toFixed(2)}</div>
+                    <div className="podium-pct" style={{ color: '#f5a623' }}>
+                      {parseFloat(a.real_eth || 0).toFixed(5)} ETH
                     </div>
-                    <div className="podium-sr">{successRate(a)}% success</div>
+                    <div className="podium-sr">{tokensHeldCount(a)} token{tokensHeldCount(a) !== 1 ? 's' : ''} held</div>
                   </div>
                 </div>
               </div>
@@ -196,24 +212,24 @@ export default function Leaderboard() {
           <table className="data-table" style={{ width: '100%' }}>
             <thead>
               <tr>
-                <th>RANK</th><th>AGENT</th><th>STATUS</th><th>PRICE</th><th>CHANGE</th>
-                <th>WALLET</th><th>HOLDINGS</th><th>TASKS WON</th><th>TASKS LOST</th><th>SUCCESS RATE</th>
-                <th>TOTAL EARNED</th><th>CYCLES</th><th>STYLE</th><th>CREATOR</th>
+                <th>RANK</th><th>AGENT</th><th>STATUS</th><th>PORTFOLIO VALUE</th>
+                <th>ETH BALANCE</th><th>INVESTED</th><th>TOKENS HELD</th><th>REAL TRADES</th>
+                <th>STYLE</th><th>CREATOR</th>
               </tr>
             </thead>
             <tbody>
               {sorted.length === 0 && (
                 <tr>
-                  <td colSpan={14} style={{ textAlign: 'center', padding: '32px', color: 'var(--text3)', fontSize: '0.8rem' }}>
+                  <td colSpan={10} style={{ textAlign: 'center', padding: '32px', color: 'var(--text3)', fontSize: '0.8rem' }}>
                     No agents yet
                   </td>
                 </tr>
               )}
               {paginated.map((agent, idx) => {
                 const i = pageStart + idx
-                const change = ((parseFloat(agent.price) - 1) * 100).toFixed(2)
-                const sr = successRate(agent)
-                const color = agentColor(agent.ticker)
+                const value = portfolioUsd(agent)
+                const investedEth = tokenInvestedEth(agent)
+                const heldCount = tokensHeldCount(agent)
                 return (
                   <tr key={agent.ticker}>
                     <td>
@@ -232,37 +248,32 @@ export default function Leaderboard() {
                     </td>
                     <td>{getStatusBadge(agent, i)}</td>
                     <td>
-                      <span style={{ fontWeight: 700, color: parseFloat(agent.price) >= 1 ? 'var(--green)' : 'var(--red)', fontSize: '0.85rem' }}>
-                        ${parseFloat(agent.price).toFixed(4)}
+                      <span style={{ fontWeight: 700, color: 'var(--green)', fontSize: '0.85rem' }}>
+                        ${value.toFixed(2)}
                       </span>
                     </td>
                     <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        {parseFloat(change) >= 0 ? <TrendingUp size={12} color="var(--green)" /> : <TrendingDown size={12} color="var(--red)" />}
-                        <span style={{ color: parseFloat(change) >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
-                          {parseFloat(change) >= 0 ? '+' : ''}{change}%
-                        </span>
-                      </div>
-                    </td>
-                    <td>
                       <div>
-                        <div style={{ fontWeight: 600, color: parseFloat(agent.wallet) < 1 ? 'var(--red)' : 'var(--text)' }}>
-                          ${parseFloat(agent.wallet).toFixed(2)}
+                        <div style={{ fontWeight: 600, color: parseFloat(agent.real_eth || 0) <= 0 ? 'var(--red)' : 'var(--text)' }}>
+                          {parseFloat(agent.real_eth || 0).toFixed(5)} ETH
                         </div>
-                        <div className="progress-bar" style={{ width: 80 }}>
-                          <div className="progress-fill" style={{ width: `${Math.min(parseFloat(agent.wallet) * 10, 100)}%`, background: parseFloat(agent.wallet) < 1 ? 'var(--red)' : 'var(--green)' }} />
+                        <div style={{ fontSize: '0.62rem', color: 'var(--text3)' }}>
+                          ${parseFloat(agent.real_usd || 0).toFixed(2)}
                         </div>
                       </div>
                     </td>
+                    <td style={{ color: 'var(--text2)', fontWeight: 600, fontSize: '0.75rem' }}>
+                      {investedEth > 0 ? `${investedEth.toFixed(5)} ETH` : '—'}
+                    </td>
                     <td>
-                      {agent.shares_owned && typeof agent.shares_owned === 'object' && Object.keys(agent.shares_owned).length > 0 ? (
+                      {heldCount > 0 ? (
                         <button
                           type="button"
                           onClick={() => setHoldingsModalAgent(agent)}
                           className="badge badge-green"
                           style={{ cursor: 'pointer', border: 'none', font: 'inherit' }}
                         >
-                          See
+                          {heldCount} · See
                         </button>
                       ) : (
                         <button
@@ -271,31 +282,12 @@ export default function Leaderboard() {
                           className="badge badge-red"
                           style={{ cursor: 'not-allowed', border: 'none', font: 'inherit', opacity: 0.6 }}
                         >
-                          No
+                          None
                         </button>
                       )}
                     </td>
-                    <td style={{ color: 'var(--green)', fontWeight: 600 }}>{agent.tasks_completed}</td>
-                    <td style={{ color: 'var(--red)', fontWeight: 600 }}>{agent.tasks_failed}</td>
-                    <td>
-                      <div>
-                        <div style={{ fontSize: '0.75rem', fontWeight: 600, color: sr >= 70 ? 'var(--green)' : sr >= 50 ? 'var(--gold)' : 'var(--red)' }}>
-                          {sr}%
-                        </div>
-                        <div className="progress-bar" style={{ width: 60 }}>
-                          <div className="progress-fill" style={{ width: `${sr}%`, background: sr >= 70 ? 'var(--green)' : sr >= 50 ? 'var(--gold)' : 'var(--red)' }} />
-                        </div>
-                      </div>
-                    </td>
-                    <td style={{ color: 'var(--text)', fontWeight: 600 }}>${parseFloat(agent.total_earned).toFixed(2)}</td>
-                    <td style={{ color: 'var(--text3)', fontSize: '0.72rem', fontWeight: 600 }}>
-                      {agent.cycle_count || 0}
-                      {agent.status === 'bankrupt' && agent.bankrupt_at && (
-                        <div style={{ fontSize: '0.58rem', color: 'var(--red)', marginTop: 2 }}>
-                          Died {new Date(agent.bankrupt_at).toLocaleDateString()}
-                          {agent.final_price && ` @ $${parseFloat(agent.final_price).toFixed(4)}`}
-                        </div>
-                      )}
+                    <td style={{ color: 'var(--blue)', fontWeight: 700, fontSize: '0.78rem' }}>
+                      {tradeCounts[agent.ticker] || 0}
                     </td>
                     <td style={{ color: 'var(--text3)', fontSize: '0.68rem', maxWidth: 120 }}>{agent.style}</td>
                     <td style={{ fontSize: '0.68rem', color: (agent.creator_name && agent.creator_name.trim()) ? 'var(--text2)' : 'var(--text3)' }}>
@@ -371,7 +363,7 @@ export default function Leaderboard() {
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
               <span style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text)' }}>
-                {holdingsModalAgent.ticker} — Holdings
+                {holdingsModalAgent.ticker} — Token Holdings (Base)
               </span>
               <button
                 type="button"
@@ -392,17 +384,27 @@ export default function Leaderboard() {
               </button>
             </div>
             <div style={{ fontSize: '0.8rem', color: 'var(--text2)' }}>
-              {holdingsModalAgent.shares_owned && typeof holdingsModalAgent.shares_owned === 'object' && Object.keys(holdingsModalAgent.shares_owned).length > 0
-                ? Object.entries(holdingsModalAgent.shares_owned).map(([ticker, o]) => {
-                    const shares = o?.shares ?? o
-                    const avg = o?.avg_buy_price != null ? parseFloat(o.avg_buy_price).toFixed(4) : null
+              {holdingsModalAgent.token_holdings && typeof holdingsModalAgent.token_holdings === 'object' && Object.keys(holdingsModalAgent.token_holdings).length > 0
+                ? Object.entries(holdingsModalAgent.token_holdings).map(([address, h]) => {
+                    const amount = parseFloat(h?.amount || 0)
+                    const ethIn = h?.eth_in != null ? parseFloat(h.eth_in).toFixed(6) : null
                     return (
-                      <div key={ticker} style={{ padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
-                        {ticker} — {shares} share{shares !== 1 ? 's' : ''}{avg != null ? ` @ $${avg}` : ''}
+                      <div key={address} style={{ padding: '8px 0', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                        <div>
+                          <div style={{ fontWeight: 600, color: 'var(--text)' }}>${h?.symbol || 'TOKEN'}</div>
+                          <a href={`https://basescan.org/token/${address}`} target="_blank" rel="noopener noreferrer"
+                            style={{ fontSize: '0.6rem', color: 'var(--blue)', textDecoration: 'none' }}>
+                            {address.slice(0, 6)}…{address.slice(-4)}
+                          </a>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div>{amount.toLocaleString(undefined, { maximumFractionDigits: 4 })}</div>
+                          {ethIn != null && <div style={{ fontSize: '0.6rem', color: 'var(--text3)' }}>{ethIn} ETH in</div>}
+                        </div>
                       </div>
                     )
                   })
-                : <div style={{ padding: '8px 0', color: 'var(--text3)' }}>No holdings</div>}
+                : <div style={{ padding: '8px 0', color: 'var(--text3)' }}>No token holdings</div>}
             </div>
           </div>
         </div>

@@ -1,17 +1,14 @@
 import { useState, useEffect, useCallback } from 'react'
 import axios from 'axios'
-import { CheckCircle, XCircle, PauseCircle, Loader, RefreshCw } from 'lucide-react'
+import { CheckCircle, PauseCircle, Loader, RefreshCw } from 'lucide-react'
 import AgentAvatar from '../../components/AgentAvatar'
 
 const API = import.meta.env.VITE_API_URL
-const TABS = ['all', 'pending_approval', 'active', 'bankrupt', 'rejected', 'suspended']
-const TAB_LABELS = { all: 'All', pending_approval: 'Pending', active: 'Active', bankrupt: 'Bankrupt', rejected: 'Rejected', suspended: 'Suspended' }
+const TABS = ['all', 'active', 'suspended']
+const TAB_LABELS = { all: 'All', active: 'Active', suspended: 'Suspended' }
 const STATUS_DISPLAY = {
-  pending_approval: { label: 'Pending', cls: 'badge-gold' },
   active: { label: 'Active', cls: 'badge-green' },
   dominant: { label: 'Dominant', cls: 'badge-green' },
-  bankrupt: { label: 'Bankrupt', cls: 'badge-red' },
-  rejected: { label: 'Rejected', cls: 'badge-red' },
   suspended: { label: 'Suspended', cls: 'badge-gold' },
 }
 
@@ -46,7 +43,7 @@ export default function ManageAgents() {
 
     try {
       await axios.put(`${API}/api/admin/agents/${ticker}/status`, { status: newStatus })
-      const label = newStatus === 'active' ? 'approved' : newStatus === 'rejected' ? 'rejected' : newStatus === 'suspended' ? 'suspended' : 'updated'
+      const label = newStatus === 'active' ? 'reactivated' : newStatus === 'suspended' ? 'suspended' : 'updated'
       showToast(`$${ticker} ${label} successfully`)
     } catch {
       setAllAgents(list => list.map(a => a.ticker === ticker ? { ...a, status: prev.status } : a))
@@ -56,7 +53,6 @@ export default function ManageAgents() {
   }
 
   const filtered = tab === 'all' ? allAgents : allAgents.filter(a => a.status === tab)
-  const pendingCount = allAgents.filter(a => a.status === 'pending_approval').length
 
   return (
     <div className="fade-in">
@@ -64,7 +60,7 @@ export default function ManageAgents() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div>
             <div className="page-title">Manage Agents</div>
-            <div className="page-subtitle">Approve, reject, and manage all exchange agents</div>
+            <div className="page-subtitle">Suspend or reactivate exchange agents</div>
           </div>
           <button onClick={fetchAgents} className="btn btn-outline" style={{ marginLeft: 'auto', padding: '6px 12px', fontSize: '0.68rem', gap: 4 }}>
             <RefreshCw size={12} /> Refresh
@@ -89,9 +85,6 @@ export default function ManageAgents() {
           <button key={t} onClick={() => setTab(t)}
             className={`social-filter-btn ${tab === t ? 'social-filter-btn--active' : ''}`}>
             {TAB_LABELS[t]}
-            {t === 'pending_approval' && pendingCount > 0 && (
-              <span className="badge badge-gold" style={{ marginLeft: 6, fontSize: '0.55rem' }}>{pendingCount}</span>
-            )}
           </button>
         ))}
       </div>
@@ -132,20 +125,6 @@ export default function ManageAgents() {
                     </td>
                     <td>
                       <div style={{ display: 'flex', gap: 4 }}>
-                        {a.status === 'pending_approval' && (
-                          <>
-                            <button className="btn" onClick={() => updateStatus(a.ticker, 'active')}
-                              disabled={!!actionLoading[a.ticker]}
-                              style={{ background: 'var(--green)', color: 'white', padding: '4px 10px', fontSize: '0.62rem', gap: 4 }}>
-                              {actionLoading[a.ticker] === 'active' ? <Loader size={10} className="auth-spinner" /> : <CheckCircle size={10} />} Approve
-                            </button>
-                            <button className="btn" onClick={() => updateStatus(a.ticker, 'rejected')}
-                              disabled={!!actionLoading[a.ticker]}
-                              style={{ background: 'var(--red)', color: 'white', padding: '4px 10px', fontSize: '0.62rem', gap: 4 }}>
-                              {actionLoading[a.ticker] === 'rejected' ? <Loader size={10} className="auth-spinner" /> : <XCircle size={10} />} Reject
-                            </button>
-                          </>
-                        )}
                         {(a.status === 'active' || a.status === 'dominant') && (
                           <button className="btn btn-outline" onClick={() => updateStatus(a.ticker, 'suspended')}
                             disabled={!!actionLoading[a.ticker]}
@@ -158,13 +137,6 @@ export default function ManageAgents() {
                             disabled={!!actionLoading[a.ticker]}
                             style={{ background: 'var(--green)', color: 'white', padding: '4px 10px', fontSize: '0.62rem', gap: 4 }}>
                             {actionLoading[a.ticker] === 'active' ? <Loader size={10} className="auth-spinner" /> : <CheckCircle size={10} />} Reactivate
-                          </button>
-                        )}
-                        {a.status === 'rejected' && (
-                          <button className="btn" onClick={() => updateStatus(a.ticker, 'active')}
-                            disabled={!!actionLoading[a.ticker]}
-                            style={{ background: 'var(--green)', color: 'white', padding: '4px 10px', fontSize: '0.62rem', gap: 4 }}>
-                            {actionLoading[a.ticker] === 'active' ? <Loader size={10} className="auth-spinner" /> : <CheckCircle size={10} />} Approve
                           </button>
                         )}
                       </div>

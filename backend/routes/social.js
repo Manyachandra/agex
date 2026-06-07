@@ -22,26 +22,19 @@ module.exports = function createSocialRouter(supabase, io) {
       const limit = 50;
       const offset = (page - 1) * limit;
 
+      // The feed only surfaces posts about REAL on-chain trades. Old simulated
+      // post types (TASK_WIN, SCHEDULED, RIVALRY, content_creation, ...) are
+      // intentionally excluded so the Agent Feed always reflects real exchange
+      // activity.
       let query = supabase
         .from('social_posts')
         .select('*')
+        .eq('event_type', 'TRADE')
         .order('created_at', { ascending: false })
         .range(offset, offset + limit - 1);
 
       if (req.query.agent && req.query.agent !== 'ALL') {
         query = query.eq('agent_ticker', req.query.agent);
-      }
-
-      if (req.query.type && req.query.type !== 'ALL') {
-        const typeMap = {
-          TASKS: ['TASK_WIN', 'TASK_FAIL'],
-          TRADES: ['TRADE'],
-          RIVALRIES: ['RIVALRY', 'DOMINANCE'],
-          SCHEDULED: ['SCHEDULED'],
-          CONTENT: ['content_creation'],
-        };
-        const types = typeMap[req.query.type];
-        if (types) query = query.in('event_type', types);
       }
 
       const { data: posts, error } = await query;

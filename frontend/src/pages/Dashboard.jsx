@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import axios from 'axios'
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts'
-import { TrendingUp, TrendingDown, DollarSign, ArrowLeftRight, Radio, Users, AlertTriangle, Crown, X } from 'lucide-react'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
+import { DollarSign, ArrowLeftRight, Radio, Users, Crown, X, ExternalLink } from 'lucide-react'
 import AgentAvatar from '../components/AgentAvatar'
 import { ScrollReveal, CountUp } from '../components/ScrollReveal'
 import { asArray } from '../lib/api'
@@ -11,6 +11,22 @@ const API = import.meta.env.VITE_API_URL
 const AGENT_COLORS = {
   RAVI: '#00b87a', ZEUS: '#f5a623',
   NOVA: '#7c3aed', BRAHMA: '#2563eb', KIRA: '#f03358'
+}
+
+function tokenInvestedEth(agent) {
+  const h = agent?.token_holdings
+  if (!h || typeof h !== 'object') return 0
+  return Object.values(h).reduce((s, t) => s + parseFloat(t?.eth_in || 0), 0)
+}
+
+function tokensHeldCount(agent) {
+  const h = agent?.token_holdings
+  if (!h || typeof h !== 'object') return 0
+  return Object.values(h).filter((t) => t && parseFloat(t.amount) > 0).length
+}
+
+function realActivityRows(rows) {
+  return asArray(rows).filter((item) => ['real_trade', 'fee'].includes(item.action_type))
 }
 
 
@@ -26,64 +42,35 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
   const [agents, setAgents] = useState(liveAgents || [])
   const [treasury, setTreasury] = useState(liveTreasury || null)
   const [activity, setActivity] = useState([])
-  const [stats, setStats] = useState(null)
-  const [priceHistory, setPriceHistory] = useState([])
-  const [chartAgents, setChartAgents] = useState([])
+  const [tokenTrades, setTokenTrades] = useState([])
   const [holdingsModalAgent, setHoldingsModalAgent] = useState(null)
-  const [showLegend, setShowLegend] = useState(false)
-  const [activeLine, setActiveLine] = useState(null)
-
-  const fetchPriceHistory = async (agentList) => {
-    if (!agentList?.length) return
-    // Only chart the top 5 gainers + top 5 losers to keep loading fast
-    const withPct = agentList.map(a => ({ ...a, pct: (parseFloat(a.price || 1) - 1) * 100 }))
-    const gainers = [...withPct].filter(a => a.pct >= 0).sort((a, b) => b.pct - a.pct).slice(0, 5)
-    const losers = [...withPct].filter(a => a.pct < 0).sort((a, b) => a.pct - b.pct).slice(0, 5)
-    const movers = [...gainers, ...losers]
-    setChartAgents(movers)
-
-    const histories = await Promise.all(
-      movers.map(a => axios.get(`${API}/api/price-history/${a.ticker}`).catch(() => ({ data: [] })))
-    )
-    const merged = {}
-    histories.forEach((h, i) => {
-      (h.data || []).forEach((point, j) => {
-        if (!merged[j]) merged[j] = { cycle: j + 1 }
-        merged[j][movers[i].ticker] = parseFloat(point.price)
-      })
-    })
-    setPriceHistory(Object.values(merged))
-  }
 
   const fetchAll = async () => {
     try {
-      const [ag, tr, ac, st] = await Promise.all([
+      const [ag, tr, ac, tt] = await Promise.all([
         axios.get(`${API}/api/agents`).catch(() => ({ data: [] })),
         axios.get(`${API}/api/treasury`).catch(() => ({ data: null })),
-        axios.get(`${API}/api/activity?limit=8`).catch(() => ({ data: [] })),
-        axios.get(`${API}/api/stats`).catch(() => ({ data: null }))
+        axios.get(`${API}/api/activity?limit=20`).catch(() => ({ data: [] })),
+        axios.get(`${API}/api/token-trades?limit=1000`).catch(() => ({ data: [] }))
       ])
       const agentList = asArray(ag.data)
       setAgents(agentList)
       setTreasury(tr.data)
-      setActivity(asArray(ac.data))
-      setStats(st.data)
+      setActivity(realActivityRows(ac.data).slice(0, 8))
+      setTokenTrades(asArray(tt.data))
     } catch (err) {
       console.error('Dashboard fetch error:', err)
     }
   }
 
   useEffect(() => {
-    // Fast path: load agents immediately for Leader/Risk cards + price chart
+    // Fast path: load agents immediately for leader + portfolio cards
     Promise.all([
       axios.get(`${API}/api/agents`).catch(() => ({ data: [] })),
       axios.get(`${API}/api/treasury`).catch(() => ({ data: null }))
     ]).then(([ag, tr]) => {
       const quick = asArray(ag.data)
-      if (quick.length) {
-        setAgents(quick)
-        fetchPriceHistory(quick)
-      }
+      if (quick.length) setAgents(quick)
       if (tr.data) setTreasury(tr.data)
     })
     // Full load runs in parallel
@@ -92,7 +79,7 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
 
   useEffect(() => {
     const activityInterval = setInterval(() => {
-      axios.get(`${API}/api/activity?limit=8`).then(r => setActivity(asArray(r.data))).catch(() => {})
+      axios.get(`${API}/api/activity?limit=20`).then(r => setActivity(realActivityRows(r.data).slice(0, 8))).catch(() => {})
     }, 15000)
     return () => clearInterval(activityInterval)
   }, [])
@@ -102,15 +89,33 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
     if (liveTreasury) setTreasury(liveTreasury)
   }, [liveAgents, liveTreasury])
 
-  const sorted = [...agents].sort((a, b) => b.price - a.price)
+  const ethUsd = (() => {
+    const ref = agents.find((a) => parseFloat(a.real_eth || 0) > 0 && parseFloat(a.real_usd || 0) > 0)
+    return ref ? parseFloat(ref.real_usd) / parseFloat(ref.real_eth) : 0
+  })()
+  const portfolioUsd = (a) => parseFloat(a.real_usd || 0) + tokenInvestedEth(a) * ethUsd
+  const sorted = [...agents].sort((a, b) => portfolioUsd(b) - portfolioUsd(a))
   const leader = sorted[0]
-  const riskAgent = [...agents].filter(a => a.status === 'active').sort((a, b) => a.wallet - b.wallet)[0]
+  const tradeCounts = tokenTrades.reduce((acc, t) => {
+    if (t.agent_ticker) acc[t.agent_ticker] = (acc[t.agent_ticker] || 0) + 1
+    return acc
+  }, {})
+  const recentTradeChart = [...tokenTrades]
+    .slice(0, 20)
+    .reverse()
+    .map((t, i) => ({
+      n: i + 1,
+      eth: parseFloat(t.eth_amount || 0),
+      side: t.side,
+      ticker: t.agent_ticker,
+      symbol: t.token_symbol,
+    }))
 
   return (
     <div className="fade-in">
       <div className="page-header">
         <div className="page-title">Exchange Overview</div>
-        <div className="page-subtitle">Real-time autonomous AI stock exchange — no human intervention</div>
+        <div className="page-subtitle">Real on-chain agent trading on Base — wallet balances, swaps, and fees</div>
       </div>
 
       {/* KPI Row */}
@@ -120,7 +125,8 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
           {
             label: 'Treasury Collected',
             value: `$${parseFloat(treasury?.total_fees || 0).toFixed(2)}`,
-            sub: '+2% per trade',
+            decimals: 2,
+            sub: '2% fee per real trade',
             icon: DollarSign,
             color: '#00b87a',
             bg: '#edfaf4'
@@ -128,15 +134,15 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
           {
             label: 'Total Trades',
             value: treasury?.total_trades || 0,
-            sub: 'Agent vs Agent',
+            sub: 'Real on-chain trades',
             icon: ArrowLeftRight,
             color: '#2563eb',
             bg: '#eff4ff'
           },
           {
-            label: 'Hermes Cycles',
-            value: Math.max(0, ...agents.map(a => a.cycle_count || 0)),
-            sub: 'Live Pyth price updates',
+            label: 'Real Coins Held',
+            value: agents.reduce((n, a) => n + Object.values(a.token_holdings || {}).filter(v => v && parseFloat(v.amount) > 0).length, 0),
+            sub: 'On-chain Base tokens',
             icon: Radio,
             color: '#f5a623',
             bg: '#fff8ed'
@@ -144,7 +150,7 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
           {
             label: 'Active Agents',
             value: agents.filter(a => a.status === 'active' || a.status === 'dominant').length,
-            sub: `${agents.filter(a => a.status === 'bankrupt').length} bankrupt`,
+            sub: `${agents.filter(a => a.status === 'dominant').length} dominant`,
             icon: Users,
             color: '#7c3aed',
             bg: '#f5f0ff'
@@ -158,7 +164,8 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
               <div className="stat-number" style={{ color: kpi.color, marginBottom: '4px' }}>
               <CountUp value={typeof kpi.value === 'string' ? kpi.value.replace(/[^0-9.]/g, '') : kpi.value}
                 prefix={typeof kpi.value === 'string' && kpi.value.startsWith('$') ? '$' : ''}
-                decimals={typeof kpi.value === 'string' && kpi.value.includes('.') ? 2 : 0}
+                suffix={kpi.suffix || ''}
+                decimals={typeof kpi.decimals === 'number' ? kpi.decimals : (typeof kpi.value === 'string' && kpi.value.includes('.') ? 2 : 0)}
               />
             </div>
               <div style={{ fontSize: '0.65rem', color: 'var(--text3)' }}>{kpi.sub}</div>
@@ -174,65 +181,42 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
       <ScrollReveal delay={100}>
       <div className="grid-2" style={{ marginBottom: '20px' }}>
 
-        {/* Price Chart */}
+        {/* Real Trade Chart */}
         <div className="card" style={{ gridColumn: '1 / 2' }}>
           <div className="card-header">
-            <div className="card-title">Price History</div>
-            <button
-              type="button"
-              onClick={() => setShowLegend(true)}
+            <div className="card-title">Recent On-Chain Trade Volume</div>
+            <span
               className="badge badge-green"
-              style={{ border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
-              aria-label="Show agents legend"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}
             >
               <span style={{
                 width: 6, height: 6, borderRadius: '50%', background: 'currentColor',
                 animation: 'pulse 1.5s ease-in-out infinite'
               }} />
               LIVE
-            </button>
+            </span>
           </div>
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={priceHistory} onMouseLeave={() => setActiveLine(null)}>
-              <XAxis dataKey="cycle" tick={{ fontSize: 10, fill: '#8896a8' }} label={{ value: 'Cycle', position: 'insideBottom', fontSize: 10 }} />
-              <YAxis tick={{ fontSize: 10, fill: '#8896a8' }} domain={['auto', 'auto']} />
-              <Tooltip
-                isAnimationActive={false}
-                cursor={{ stroke: '#1e2730' }}
-                content={({ active, payload, label }) => {
-                  if (!active || !payload?.length) return null
-                  const items = activeLine
-                    ? payload.filter(p => p.dataKey === activeLine)
-                    : payload
-                  if (!items.length) return null
-                  return (
-                    <div style={{ background: '#0d1117', border: '1px solid #1e2730', borderRadius: 8, fontSize: '0.72rem', padding: '8px 10px' }}>
-                      <div style={{ color: '#8896a8', marginBottom: 4 }}>Cycle {label}</div>
-                      {items.map(p => (
-                        <div key={p.dataKey} style={{ color: p.color, fontWeight: 600 }}>
-                          {p.dataKey}: ${Number(p.value).toFixed(4)}
-                        </div>
-                      ))}
-                    </div>
-                  )
-                }}
-              />
-              {chartAgents.map(a => (
-                <Line
-                  key={a.ticker}
-                  type="monotone"
-                  dataKey={a.ticker}
-                  stroke={AGENT_COLORS[a.ticker] || agentColor(a.ticker)}
-                  strokeWidth={activeLine === a.ticker ? 3 : 2}
-                  strokeOpacity={activeLine && activeLine !== a.ticker ? 0.25 : 1}
-                  dot={false}
-                  activeDot={{ r: 4, onMouseOver: () => setActiveLine(a.ticker) }}
-                  isAnimationActive={false}
-                  onMouseEnter={() => setActiveLine(a.ticker)}
+          {recentTradeChart.length === 0 ? (
+            <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text3)', fontSize: '0.8rem' }}>
+              No real on-chain trades yet
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={recentTradeChart}>
+                <XAxis dataKey="n" tick={{ fontSize: 10, fill: '#8896a8' }} label={{ value: 'Recent Trades', position: 'insideBottom', fontSize: 10 }} />
+                <YAxis tick={{ fontSize: 10, fill: '#8896a8' }} domain={['auto', 'auto']} />
+                <Tooltip
+                  contentStyle={{ background: '#0d1117', border: '1px solid #1e2730', borderRadius: '8px', fontSize: '0.72rem' }}
+                  formatter={(v, _n, p) => [`${parseFloat(v).toFixed(6)} ETH`, `${p?.payload?.ticker || ''} ${(p?.payload?.side || '').toUpperCase()} $${p?.payload?.symbol || ''}`]}
                 />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
+                <Bar dataKey="eth" radius={[4, 4, 0, 0]}>
+                  {recentTradeChart.map((d, i) => (
+                    <Cell key={i} fill={d.side === 'buy' ? '#00b87a' : '#f03358'} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </div>
 
         {/* Leader + Risk */}
@@ -252,59 +236,42 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
                   </div>
                   <div style={{ fontSize: '0.7rem', color: '#4a6070', marginBottom: '8px' }}>{leader.full_name}</div>
                   <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#00b87a' }}>
-                    ${parseFloat(leader.price).toFixed(4)}
+                    ${portfolioUsd(leader).toFixed(2)}
                   </div>
                   <div style={{ fontSize: '0.7rem', color: '#00b87a' }}>
-                    ▲ +{((parseFloat(leader.price) - 1) * 100).toFixed(2)}% since launch
+                    highest real portfolio value
                   </div>
                 </div>
                 <Crown size={32} color="#00b87a" style={{ opacity: 0.3 }} />
               </div>
               <div style={{ display: 'flex', gap: '16px', marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #1e3020' }}>
                 <div>
-                  <div style={{ fontSize: '0.6rem', color: '#3a5040' }}>TASKS WON</div>
-                  <div style={{ fontSize: '0.85rem', color: '#00b87a', fontWeight: 600 }}>{leader.tasks_completed}</div>
+                  <div style={{ fontSize: '0.6rem', color: '#3a5040' }}>ETH</div>
+                  <div style={{ fontSize: '0.85rem', color: '#00b87a', fontWeight: 600 }}>{parseFloat(leader.real_eth || 0).toFixed(5)}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: '0.6rem', color: '#3a5040' }}>TASKS LOST</div>
-                  <div style={{ fontSize: '0.85rem', color: '#f03358', fontWeight: 600 }}>{leader.tasks_failed}</div>
+                  <div style={{ fontSize: '0.6rem', color: '#3a5040' }}>TOKENS</div>
+                  <div style={{ fontSize: '0.85rem', color: '#ffffff', fontWeight: 600 }}>{tokensHeldCount(leader)}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: '0.6rem', color: '#3a5040' }}>WALLET</div>
-                  <div style={{ fontSize: '0.85rem', color: '#ffffff', fontWeight: 600 }}>${parseFloat(leader.wallet).toFixed(2)}</div>
+                  <div style={{ fontSize: '0.6rem', color: '#3a5040' }}>TRADES</div>
+                  <div style={{ fontSize: '0.85rem', color: '#ffffff', fontWeight: 600 }}>{tradeCounts[leader.ticker] || 0}</div>
                 </div>
               </div>
             </div>
           )}
 
-          {riskAgent && parseFloat(riskAgent.wallet) < 3 && (
-            <div className="card" style={{ background: '#fff8f0', border: '1px solid #ffd4a8' }}>
-              <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-                <AlertTriangle size={20} color="#f5a623" style={{ flexShrink: 0, marginTop: '2px' }} />
-                <div>
-                  <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#c47010', marginBottom: '4px' }}>
-                    ⚠ BANKRUPTCY WARNING
-                  </div>
-                  <div style={{ fontSize: '0.7rem', color: '#8a5010' }}>
-                    <strong>{riskAgent.ticker}</strong> has only ${parseFloat(riskAgent.wallet).toFixed(2)} left in wallet.
-                    Bankruptcy triggers at $0.10.
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
         </div>
       </ScrollReveal>
 
-      {/* Top Gainers + Biggest Drops */}
+      {/* Top Portfolios + Most Active Traders */}
       {(() => {
-        const withPct = agents.map(a => ({ ...a, pct: (parseFloat(a.price || 1) - 1) * 100 }))
-        const gainers = [...withPct].filter(a => a.pct >= 0).sort((a, b) => b.pct - a.pct).slice(0, 5)
-        const drops = [...withPct].filter(a => a.pct < 0).sort((a, b) => a.pct - b.pct).slice(0, 5)
+        const topPortfolios = [...agents].sort((a, b) => portfolioUsd(b) - portfolioUsd(a)).slice(0, 5)
+        const mostActive = [...agents].sort((a, b) => (tradeCounts[b.ticker] || 0) - (tradeCounts[a.ticker] || 0)).slice(0, 5)
 
-        const renderRow = (a, i, isGainer) => {
-          const color = isGainer ? 'var(--green)' : 'var(--red)'
+        const renderRow = (a, i, mode) => {
+          const color = mode === 'portfolio' ? 'var(--green)' : 'var(--blue)'
           return (
             <div key={a.ticker} style={{
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -316,9 +283,8 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
                 <span style={{ fontSize: '0.78rem', fontWeight: 600 }}>{a.ticker}</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <span style={{ fontSize: '0.78rem', fontWeight: 700, color }}>${parseFloat(a.price).toFixed(4)}</span>
-                <span style={{ fontSize: '0.68rem', fontWeight: 600, color, minWidth: 62, textAlign: 'right' }}>
-                  {isGainer ? '▲' : '▼'} {Math.abs(a.pct).toFixed(2)}%
+                <span style={{ fontSize: '0.78rem', fontWeight: 700, color }}>
+                  {mode === 'portfolio' ? `$${portfolioUsd(a).toFixed(2)}` : `${tradeCounts[a.ticker] || 0} trades`}
                 </span>
               </div>
             </div>
@@ -330,19 +296,19 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
           <div className="grid-2" style={{ marginBottom: 20 }}>
             <div className="card">
               <div className="card-header">
-                <div className="card-title" style={{ color: 'var(--green)' }}>TOP GAINERS 🟢</div>
+                <div className="card-title" style={{ color: 'var(--green)' }}>TOP PORTFOLIOS</div>
                 <span className="badge badge-green">TOP 5</span>
               </div>
-              {gainers.length === 0 && <div style={{ padding: 16, textAlign: 'center', color: 'var(--text3)', fontSize: '0.72rem' }}>No gainers yet</div>}
-              {gainers.map((a, i) => renderRow(a, i, true))}
+              {topPortfolios.length === 0 && <div style={{ padding: 16, textAlign: 'center', color: 'var(--text3)', fontSize: '0.72rem' }}>No agents yet</div>}
+              {topPortfolios.map((a, i) => renderRow(a, i, 'portfolio'))}
             </div>
             <div className="card">
               <div className="card-header">
-                <div className="card-title" style={{ color: 'var(--red)' }}>BIGGEST DROPS 🔴</div>
-                <span className="badge badge-red">TOP 5</span>
+                <div className="card-title" style={{ color: 'var(--blue)' }}>MOST ACTIVE TRADERS</div>
+                <span className="badge badge-gray">TOP 5</span>
               </div>
-              {drops.length === 0 && <div style={{ padding: 16, textAlign: 'center', color: 'var(--text3)', fontSize: '0.72rem' }}>No drops yet</div>}
-              {drops.map((a, i) => renderRow(a, i, false))}
+              {mostActive.length === 0 && <div style={{ padding: 16, textAlign: 'center', color: 'var(--text3)', fontSize: '0.72rem' }}>No real trades yet</div>}
+              {mostActive.map((a, i) => renderRow(a, i, 'trades'))}
             </div>
             </div>
           </ScrollReveal>
@@ -351,7 +317,7 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
 
       {/* All Agents Table */}
       {(() => {
-        const visible = agents.filter(a => ['active', 'dominant', 'bankrupt'].includes(a.status))
+        const visible = agents.filter(a => ['active', 'dominant'].includes(a.status))
         if (visible.length === 0) return null
         return (
           <div className="card" style={{ marginBottom: 20 }}>
@@ -364,21 +330,20 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
                 <thead>
                   <tr>
                     <th>Ticker</th><th>Full Name</th><th>Style</th>
-                    <th style={{ textAlign: 'right' }}>Price</th>
-                    <th style={{ textAlign: 'right' }}>Change %</th>
-                    <th style={{ textAlign: 'right' }}>Wallet</th>
-                    <th>Holdings</th>
+                    <th style={{ textAlign: 'right' }}>Portfolio</th>
+                    <th style={{ textAlign: 'right' }}>ETH Balance</th>
+                    <th style={{ textAlign: 'right' }}>Invested</th>
+                    <th>Tokens</th>
+                    <th style={{ textAlign: 'right' }}>Trades</th>
                     <th>Creator</th>
                   </tr>
                 </thead>
                 <tbody>
                   {visible.map(a => {
                     const color = AGENT_COLORS[a.ticker] || agentColor(a.ticker)
-                    const price = parseFloat(a.price || 1)
-                    const pct = ((price - 1) / 1) * 100
-                    const up = pct >= 0
                     const handle = (a.creator_twitter || '').replace(/^@/, '')
-                    const hasHoldings = a.shares_owned && typeof a.shares_owned === 'object' && Object.keys(a.shares_owned).length > 0
+                    const heldCount = tokensHeldCount(a)
+                    const invested = tokenInvestedEth(a)
                     return (
                       <tr key={a.ticker}>
                         <td>
@@ -389,24 +354,25 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
                         </td>
                         <td>{a.full_name}</td>
                         <td style={{ fontSize: '0.68rem', color: 'var(--text2)' }}>{a.style}</td>
-                        <td style={{ textAlign: 'right', fontWeight: 700, color: up ? 'var(--green)' : 'var(--red)' }}>
-                          ${price.toFixed(4)}
-                        </td>
-                        <td style={{ textAlign: 'right', fontWeight: 600, color: up ? 'var(--green)' : 'var(--red)' }}>
-                          {up ? '▲' : '▼'} {Math.abs(pct).toFixed(2)}%
+                        <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--green)' }}>
+                          ${portfolioUsd(a).toFixed(2)}
                         </td>
                         <td style={{ textAlign: 'right', fontWeight: 600 }}>
-                          ${parseFloat(a.wallet || 0).toFixed(2)}
+                          {parseFloat(a.real_eth || 0).toFixed(5)}
+                          <div style={{ fontSize: '0.62rem', color: 'var(--text3)' }}>${parseFloat(a.real_usd || 0).toFixed(2)}</div>
+                        </td>
+                        <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--text2)' }}>
+                          {invested > 0 ? `${invested.toFixed(5)} ETH` : '—'}
                         </td>
                         <td>
-                          {hasHoldings ? (
+                          {heldCount > 0 ? (
                             <button
                               type="button"
                               onClick={() => setHoldingsModalAgent(a)}
                               className="badge badge-green"
                               style={{ cursor: 'pointer', border: 'none', font: 'inherit' }}
                             >
-                              See
+                              {heldCount} · See
                             </button>
                           ) : (
                             <button
@@ -415,10 +381,11 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
                               className="badge badge-red"
                               style={{ cursor: 'not-allowed', border: 'none', font: 'inherit', opacity: 0.6 }}
                             >
-                              No
+                              None
                             </button>
                           )}
                         </td>
+                        <td style={{ textAlign: 'right', color: 'var(--blue)', fontWeight: 700 }}>{tradeCounts[a.ticker] || 0}</td>
                         <td style={{ fontSize: '0.68rem' }}>
                           {a.creator_name && <span>{a.creator_name}</span>}
                           {!a.creator_name && !handle && <span style={{ color: 'var(--text3)' }}>Anonymous</span>}
@@ -441,48 +408,56 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
         </div>
         {activity.length === 0 && (
           <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text3)', fontSize: '0.8rem' }}>
-            No activity yet. The exchange engine will generate events every 10 minutes.
+            No real on-chain activity yet.
           </div>
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
-          {activity.map((item, i) => (
-            <div key={item.id} style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '10px 0',
-              borderBottom: i < activity.length - 1 ? '1px solid var(--border)' : 'none'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <div style={{
-                  background: (AGENT_COLORS[item.agent_ticker] || agentColor(item.agent_ticker || '')) + '20',
-                  color: AGENT_COLORS[item.agent_ticker] || agentColor(item.agent_ticker || ''),
-                  padding: '3px 8px',
-                  borderRadius: '4px',
-                  fontSize: '0.65rem',
-                  fontWeight: 700,
-                  fontFamily: "'Geist Mono', monospace"
-                }}>
-                  {item.agent_ticker}
+          {activity.map((item, i) => {
+            const amount = parseFloat(item.amount || 0)
+            const amountText = item.action_type === 'real_trade'
+              ? `${amount.toFixed(5)} ETH`
+              : item.action_type === 'fee'
+                ? `$${amount.toFixed(4)}`
+                : amount > 0 ? `$${amount.toFixed(2)}` : '$0.00'
+            return (
+              <div key={item.id} style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '10px 0',
+                borderBottom: i < activity.length - 1 ? '1px solid var(--border)' : 'none'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{
+                    background: (AGENT_COLORS[item.agent_ticker] || agentColor(item.agent_ticker || '')) + '20',
+                    color: AGENT_COLORS[item.agent_ticker] || agentColor(item.agent_ticker || ''),
+                    padding: '3px 8px',
+                    borderRadius: '4px',
+                    fontSize: '0.65rem',
+                    fontWeight: 700,
+                    fontFamily: "'Geist Mono', monospace"
+                  }}>
+                    {item.agent_ticker}
+                  </div>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text2)' }}>{item.action}</span>
+                  {item.tx_hash && (
+                    <a href={`https://basescan.org/tx/${item.tx_hash}`} target="_blank" rel="noopener noreferrer"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--blue)', fontSize: '0.68rem', fontWeight: 600, textDecoration: 'none' }}>
+                      <ExternalLink size={11} /> View
+                    </a>
+                  )}
                 </div>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text2)' }}>{item.action}</span>
-              </div>
-              <div style={{ display: 'flex', align: 'center', gap: '12px' }}>
-                {parseFloat(item.amount) > 0 ? (
-                  <span style={{ fontSize: '0.75rem', color: 'var(--green)', fontWeight: 600 }}>
-                    +${parseFloat(item.amount).toFixed(2)}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <span style={{ fontSize: '0.75rem', color: amount > 0 ? 'var(--green)' : 'var(--text3)', fontWeight: 600 }}>
+                    {amountText}
                   </span>
-                ) : (
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text3)', fontWeight: 500 }}>
-                    $0.00
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text3)' }}>
+                  {new Date(item.created_at.endsWith('Z') || item.created_at.includes('+') ? item.created_at : item.created_at + 'Z').toLocaleTimeString()}
                   </span>
-                )}
-                <span style={{ fontSize: '0.65rem', color: 'var(--text3)' }}>
-                {new Date(item.created_at.endsWith('Z') || item.created_at.includes('+') ? item.created_at : item.created_at + 'Z').toLocaleTimeString()}
-                </span>
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </div>
 
@@ -516,7 +491,7 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
               <span style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text)' }}>
-                {holdingsModalAgent.ticker} — Holdings
+                {holdingsModalAgent.ticker} — Token Holdings (Base)
               </span>
               <button
                 type="button"
@@ -537,116 +512,27 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
               </button>
             </div>
             <div style={{ fontSize: '0.8rem', color: 'var(--text2)' }}>
-              {holdingsModalAgent.shares_owned && typeof holdingsModalAgent.shares_owned === 'object' && Object.keys(holdingsModalAgent.shares_owned).length > 0
-                ? Object.entries(holdingsModalAgent.shares_owned).map(([ticker, o]) => {
-                    const shares = o?.shares ?? o
-                    const avg = o?.avg_buy_price != null ? parseFloat(o.avg_buy_price).toFixed(4) : null
+              {holdingsModalAgent.token_holdings && typeof holdingsModalAgent.token_holdings === 'object' && Object.keys(holdingsModalAgent.token_holdings).length > 0
+                ? Object.entries(holdingsModalAgent.token_holdings).map(([address, h]) => {
+                    const amount = parseFloat(h?.amount || 0)
+                    const ethIn = h?.eth_in != null ? parseFloat(h.eth_in).toFixed(6) : null
                     return (
-                      <div key={ticker} style={{ padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
-                        {ticker} — {shares} share{shares !== 1 ? 's' : ''}{avg != null ? ` @ $${avg}` : ''}
+                      <div key={address} style={{ padding: '8px 0', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                        <div>
+                          <div style={{ fontWeight: 600, color: 'var(--text)' }}>${h?.symbol || 'TOKEN'}</div>
+                          <a href={`https://basescan.org/token/${address}`} target="_blank" rel="noopener noreferrer"
+                            style={{ fontSize: '0.6rem', color: 'var(--blue)', textDecoration: 'none' }}>
+                            {address.slice(0, 6)}…{address.slice(-4)}
+                          </a>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div>{amount.toLocaleString(undefined, { maximumFractionDigits: 4 })}</div>
+                          {ethIn != null && <div style={{ fontSize: '0.6rem', color: 'var(--text3)' }}>{ethIn} ETH in</div>}
+                        </div>
                       </div>
                     )
                   })
-                : <div style={{ padding: '8px 0', color: 'var(--text3)' }}>No holdings</div>}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Price History Agents Legend Modal */}
-      {showLegend && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Price history agents"
-          style={{
-            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            zIndex: 1000, padding: 16, backdropFilter: 'blur(2px)',
-          }}
-          onClick={() => setShowLegend(false)}
-        >
-          <div
-            className="fade-in"
-            style={{
-              background: 'var(--bg2)', border: '1px solid var(--border)',
-              borderRadius: 14, width: '100%', maxWidth: 420, maxHeight: '80vh',
-              overflow: 'hidden', boxShadow: '0 12px 40px rgba(0,0,0,0.45)',
-              display: 'flex', flexDirection: 'column',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              padding: '16px 20px', borderBottom: '1px solid var(--border)',
-            }}>
-              <div>
-                <div style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: '1rem', color: 'var(--text)' }}>
-                  Price History
-                </div>
-                <div style={{ fontSize: '0.68rem', color: 'var(--text3)', marginTop: 2 }}>
-                  Top {chartAgents.length} mover{chartAgents.length !== 1 ? 's' : ''} on the chart
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowLegend(false)}
-                style={{
-                  background: 'transparent', border: 'none', cursor: 'pointer',
-                  padding: 4, color: 'var(--text3)', display: 'flex', alignItems: 'center',
-                }}
-                aria-label="Close"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div style={{ padding: '8px 12px', overflowY: 'auto' }}>
-              {chartAgents.length === 0 && (
-                <div style={{ padding: 20, textAlign: 'center', color: 'var(--text3)', fontSize: '0.75rem' }}>
-                  No agents to display
-                </div>
-              )}
-              {[...chartAgents].sort((a, b) => parseFloat(b.price) - parseFloat(a.price)).map(a => {
-                const color = AGENT_COLORS[a.ticker] || agentColor(a.ticker)
-                const price = parseFloat(a.price || 1)
-                const pct = (price - 1) * 100
-                const up = pct >= 0
-                return (
-                  <div
-                    key={a.ticker}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 12,
-                      padding: '10px 8px', borderRadius: 10,
-                      borderBottom: '1px solid var(--border)',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                      <span style={{ width: 14, height: 3, borderRadius: 2, background: color }} />
-                      <AgentAvatar ticker={a.ticker} avatarUrl={a.avatar_url} size="sm" />
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text)' }}>
-                        ${a.ticker}
-                      </div>
-                      <div style={{
-                        fontSize: '0.66rem', color: 'var(--text3)',
-                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                      }}>
-                        {a.full_name}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                      <div style={{ fontSize: '0.8rem', fontWeight: 700, color: up ? 'var(--green)' : 'var(--red)' }}>
-                        ${price.toFixed(4)}
-                      </div>
-                      <div style={{ fontSize: '0.64rem', fontWeight: 600, color: up ? 'var(--green)' : 'var(--red)' }}>
-                        {up ? '▲' : '▼'} {Math.abs(pct).toFixed(2)}%
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
+                : <div style={{ padding: '8px 0', color: 'var(--text3)' }}>No token holdings</div>}
             </div>
           </div>
         </div>

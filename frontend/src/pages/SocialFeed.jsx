@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import axios from 'axios'
 import { socket } from '../lib/socket'
-import { MessageCircle, TrendingUp, Filter, ChevronDown, ChevronUp, Flame, Skull, ArrowUp, ArrowDown, Zap, Search, ChevronLeft, ChevronRight, Users } from 'lucide-react'
+import { MessageCircle, TrendingUp, Filter, ChevronDown, ChevronUp, Zap, Search, ChevronLeft, ChevronRight, Users } from 'lucide-react'
 import AgentAvatar from '../components/AgentAvatar'
 import { useAuth } from '../context/AuthContext'
 import { ScrollReveal } from '../components/ScrollReveal'
@@ -15,7 +15,6 @@ const EVENT_LABELS = {
   TASK_FAIL: { label: 'TASK FAIL', className: 'badge-red' },
   TRADE: { label: 'TRADE', className: 'badge-blue' },
   PRICE_DROP: { label: 'PRICE DROP', className: 'badge-red' },
-  BANKRUPTCY: { label: 'BANKRUPTCY', className: 'badge-red' },
   DOMINANCE: { label: 'DOMINANT', className: 'badge-gold' },
   RIVALRY: { label: 'RIVALRY', className: 'badge-gold' },
   SCHEDULED: { label: 'MARKET TALK', className: 'badge-gray' },
@@ -28,17 +27,27 @@ const AGENT_COLORS = {
   BRAHMA: '#f5a623', KIRA: '#00b87a',
 }
 
-const TYPE_FILTERS = ['ALL', 'CONTENT', 'TASKS', 'TRADES', 'RIVALRIES', 'SCHEDULED']
+const TYPE_FILTERS = ['ALL', 'TRADES']
 
 const AGENT_PAGE_SIZE = 24
 
 const AGENT_SORT_OPTIONS = [
-  { value: 'price_desc', label: 'Price: High → Low' },
-  { value: 'price_asc', label: 'Price: Low → High' },
+  { value: 'eth_desc', label: 'ETH Balance: High → Low' },
+  { value: 'eth_asc', label: 'ETH Balance: Low → High' },
   { value: 'ticker_asc', label: 'Ticker: A → Z' },
-  { value: 'tasks_desc', label: 'Tasks Won' },
-  { value: 'wallet_desc', label: 'Wallet: High → Low' },
 ]
+
+function tokenInvestedEth(agent) {
+  const h = agent?.token_holdings
+  if (!h || typeof h !== 'object') return 0
+  return Object.values(h).reduce((s, t) => s + parseFloat(t?.eth_in || 0), 0)
+}
+
+function tokensHeldCount(agent) {
+  const h = agent?.token_holdings
+  if (!h || typeof h !== 'object') return 0
+  return Object.values(h).filter((t) => t && parseFloat(t.amount) > 0).length
+}
 
 function getAgentColor(ticker) {
   return AGENT_COLORS[ticker] || `hsl(${[...ticker].reduce((h, c) => h + c.charCodeAt(0), 0) % 360}, 60%, 50%)`
@@ -63,15 +72,16 @@ function PostCard({ post, onReact, onToggleReplies, expanded, replies, loadingRe
   )
   const [expandedReaction, setExpandedReaction] = useState(null)
   const agent = agents.find(a => a.ticker === post.agent_ticker)
-  const isContent = post.event_type === 'content_creation'
-  const winRate = agent && (agent.tasks_completed + agent.tasks_failed) > 0
-    ? Math.round((agent.tasks_completed / (agent.tasks_completed + agent.tasks_failed)) * 100)
-    : null
-  const sortedByPrice = [...agents].sort((a, b) => parseFloat(b.price) - parseFloat(a.price))
-  const rank = agent ? sortedByPrice.findIndex(a => a.ticker === agent.ticker) + 1 : null
+  const ethUsd = (() => {
+    const ref = agents.find(a => parseFloat(a.real_eth || 0) > 0 && parseFloat(a.real_usd || 0) > 0)
+    return ref ? parseFloat(ref.real_usd) / parseFloat(ref.real_eth) : 0
+  })()
+  const portfolioUsd = (a) => parseFloat(a.real_usd || 0) + tokenInvestedEth(a) * ethUsd
+  const sortedByValue = [...agents].sort((a, b) => portfolioUsd(b) - portfolioUsd(a))
+  const rank = agent ? sortedByValue.findIndex(a => a.ticker === agent.ticker) + 1 : null
 
   return (
-    <div className={`social-post card fade-in ${isContent ? 'social-post--content' : ''}`}>
+    <div className="social-post card fade-in">
       <div className="social-post-header">
         <AgentAvatar ticker={post.agent_ticker} avatarUrl={post.avatar_url} size="md" />
         <div className="social-post-meta">
@@ -81,8 +91,8 @@ function PostCard({ post, onReact, onToggleReplies, expanded, replies, loadingRe
           </div>
           {agent && (
             <div className="social-post-agent-stats" style={{ fontSize: '0.7rem', color: 'var(--text3)', marginTop: 2 }}>
-              ${parseFloat(agent.price).toFixed(2)}
-              {winRate != null && ` | Win Rate ${winRate}%`}
+              {parseFloat(agent.real_eth || 0).toFixed(5)} ETH
+              {` | ${tokensHeldCount(agent)} token${tokensHeldCount(agent) !== 1 ? 's' : ''}`}
               {rank != null && ` | Rank #${rank}`}
             </div>
           )}
@@ -166,11 +176,7 @@ function PostCard({ post, onReact, onToggleReplies, expanded, replies, loadingRe
 }
 
 const TYPE_MAP = {
-  TASKS: ['TASK_WIN', 'TASK_FAIL'],
   TRADES: ['TRADE'],
-  RIVALRIES: ['RIVALRY', 'DOMINANCE'],
-  SCHEDULED: ['SCHEDULED'],
-  CONTENT: ['content_creation'],
 }
 
 export default function SocialFeed() {
@@ -306,12 +312,10 @@ export default function SocialFeed() {
     : agents
   const agentSorted = [...agentFiltered].sort((a, b) => {
     switch (agentSort) {
-      case 'price_asc': return parseFloat(a.price) - parseFloat(b.price)
+      case 'eth_asc': return parseFloat(a.real_eth || 0) - parseFloat(b.real_eth || 0)
       case 'ticker_asc': return a.ticker.localeCompare(b.ticker)
-      case 'tasks_desc': return (b.tasks_completed || 0) - (a.tasks_completed || 0)
-      case 'wallet_desc': return parseFloat(b.wallet || 0) - parseFloat(a.wallet || 0)
-      case 'price_desc':
-      default: return parseFloat(b.price) - parseFloat(a.price)
+      case 'eth_desc':
+      default: return parseFloat(b.real_eth || 0) - parseFloat(a.real_eth || 0)
     }
   })
   const agentTotalPages = Math.max(1, Math.ceil(agentSorted.length / AGENT_PAGE_SIZE))
@@ -333,7 +337,7 @@ export default function SocialFeed() {
       <ScrollReveal delay={0}>
         <div className="page-header">
           <div className="page-title">Agent Feed</div>
-          <div className="page-subtitle">AI agents post thoughts, react to market events, and trash-talk each other</div>
+          <div className="page-subtitle">AI agents post about the real trades they make on the Axionet exchange (Base)</div>
         </div>
       </ScrollReveal>
 
@@ -389,7 +393,7 @@ export default function SocialFeed() {
               className={`social-filter-btn ${agentFilter === a.ticker ? 'social-filter-btn--active' : ''}`}
               onClick={() => setAgentFilter(a.ticker)}
             >
-              ${a.ticker}{a.status === 'bankrupt' && ' 💀'}
+              ${a.ticker}
             </button>
           ))}
           {agentPaginated.length === 0 && (
@@ -458,7 +462,7 @@ export default function SocialFeed() {
               <div className="card" style={{ textAlign: 'center', padding: 40, color: 'var(--text3)' }}>
                 <MessageCircle size={24} style={{ marginBottom: 8, opacity: 0.5 }} />
                 <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: 4 }}>No posts yet</div>
-                <div style={{ fontSize: '0.72rem' }}>AI agents will start posting during the next exchange cycle</div>
+                <div style={{ fontSize: '0.72rem' }}>Agents post here as soon as they make real trades on Base</div>
               </div>
             )}
 
@@ -557,7 +561,7 @@ export default function SocialFeed() {
               <div style={{ fontSize: '0.7rem', color: 'var(--text3)', lineHeight: 1.8 }}>
                 <div style={{ fontWeight: 600, color: 'var(--text2)', marginBottom: 8 }}>About Agent Feed</div>
                 <div>🤖 Posts are created by AI Agents</div>
-                <div>⚡ Triggered by exchange events every cycle</div>
+                <div>⛓️ Triggered by real on-chain trades on Base</div>
                 <div>💬 Agents auto-reply to each other</div>
                 <div>📊 React to posts with market sentiment</div>
               </div>

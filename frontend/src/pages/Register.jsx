@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import axios from 'axios'
-import { UserPlus, Zap, CheckCircle, AlertCircle, Loader, LogIn, Upload, ExternalLink } from 'lucide-react'
+import { UserPlus, Zap, CheckCircle, AlertCircle, Loader, LogIn, Upload, ExternalLink, Copy, KeyRound, AlertTriangle } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import AgentAvatar from '../components/AgentAvatar'
@@ -53,17 +53,19 @@ export default function Register() {
   const [showLoginModal, setShowLoginModal] = useState(false)
   const [avatarFile, setAvatarFile] = useState(null)
   const [avatarPreview, setAvatarPreview] = useState(null)
-  const [freeMode, setFreeMode] = useState(false)
+  // Registration is always free now (agents fund their own real wallet).
+  const [freeMode] = useState(true)
+  const [copiedField, setCopiedField] = useState(null)
   const fileInputRef = useRef(null)
   const tickerTimeout = useRef(null)
 
-  useEffect(() => {
-    let cancelled = false
-    axios.get(`${API}/api/settings`)
-      .then(r => { if (!cancelled) setFreeMode(!!r.data?.free_agent_registration) })
-      .catch(() => {})
-    return () => { cancelled = true }
-  }, [])
+  const copyToClipboard = (text, field) => {
+    try {
+      navigator.clipboard.writeText(text)
+      setCopiedField(field)
+      setTimeout(() => setCopiedField(null), 1500)
+    } catch { /* ignore */ }
+  }
 
   const handleAvatarSelect = (e) => {
     const file = e.target.files?.[0]
@@ -185,8 +187,8 @@ export default function Register() {
       <div className="fade-in">
         <ScrollReveal delay={0}>
           <div className="page-header">
-            <div className="page-title">Agent Submitted!</div>
-            <div className="page-subtitle">Your agent has been submitted for review</div>
+            <div className="page-title">Agent Deployed!</div>
+            <div className="page-subtitle">Your agent is now live on the exchange</div>
           </div>
           <div style={{ maxWidth: 480, margin: '0 auto' }}>
             <div className="card" style={{ textAlign: 'center' }}>
@@ -196,25 +198,54 @@ export default function Register() {
               <div style={{ fontFamily: "'Syne', sans-serif", fontSize: '1.6rem', fontWeight: 800, marginBottom: 4 }}>
                 {success.full_name}
               </div>
-              <div className="badge badge-gold" style={{ display: 'inline-block', fontSize: '0.85rem', padding: '4px 16px', marginBottom: 16 }}>
-                ${success.ticker} — Awaiting Approval
+              <div className="badge badge-green" style={{ display: 'inline-block', fontSize: '0.85rem', padding: '4px 16px', marginBottom: 16 }}>
+                ${success.ticker} — Live
               </div>
               <div style={{ background: 'var(--gold-bg)', borderRadius: 10, padding: 16, marginBottom: 16 }}>
                 <div style={{ fontSize: '0.78rem', color: '#7c6a0a', lineHeight: 1.7 }}>
-                  {success?.freeMode ? (
-                    <>
-                      ✅ Agent submitted for free. Your agent is pending admin approval.
-                      Once approved it will join the next exchange cycle.
-                    </>
-                  ) : (
-                    <>
-                      ✅ $10 USDC transaction confirmed. Your agent is pending agent approval.
-                      Once approved it will join the next exchange cycle.
-                      If rejected, your $10 USDC will be refunded to your wallet.
-                    </>
-                  )}
+                  ✅ Your agent is live on the exchange — no approval needed.
+                  Fund its wallet below with real ETH (at least $2) and it will
+                  start trading trending Base tokens on-chain.
                 </div>
               </div>
+              {success?.agentWallet && (
+                <div style={{ background: '#1a0f0f', border: '1px solid #5c1f1f', borderRadius: 10, padding: 16, marginBottom: 16, textAlign: 'left' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                    <KeyRound size={15} color="#ff6b6b" />
+                    <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#ff6b6b' }}>Your Agent's Wallet</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 10, fontSize: '0.7rem', color: '#ffb3b3', lineHeight: 1.6 }}>
+                    <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 2 }} />
+                    <span>
+                      Save this private key now. It is shown <strong>only once</strong> and gives full control of this
+                      agent's on-chain funds. Never share it. We cannot recover it for you.
+                    </span>
+                  </div>
+
+                  <div style={{ fontSize: '0.6rem', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 3 }}>Wallet Address</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                    <code style={{ flex: 1, fontSize: '0.66rem', wordBreak: 'break-all', color: 'var(--text2)', background: '#0d0d0d', padding: '7px 9px', borderRadius: 6 }}>
+                      {success.agentWallet.address}
+                    </code>
+                    <button onClick={() => copyToClipboard(success.agentWallet.address, 'addr')}
+                      className="btn btn-outline" style={{ padding: '6px 8px', fontSize: '0.6rem', flexShrink: 0 }}>
+                      <Copy size={11} /> {copiedField === 'addr' ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+
+                  <div style={{ fontSize: '0.6rem', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 3 }}>Private Key</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <code style={{ flex: 1, fontSize: '0.66rem', wordBreak: 'break-all', color: '#ffd1d1', background: '#0d0d0d', padding: '7px 9px', borderRadius: 6 }}>
+                      {success.agentWallet.privateKey}
+                    </code>
+                    <button onClick={() => copyToClipboard(success.agentWallet.privateKey, 'pk')}
+                      className="btn btn-outline" style={{ padding: '6px 8px', fontSize: '0.6rem', flexShrink: 0, borderColor: '#ff6b6b', color: '#ff6b6b' }}>
+                      <Copy size={11} /> {copiedField === 'pk' ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {success?.txHash && (
                 <a href={`https://basescan.org/tx/${success.txHash}`} target="_blank"
                   rel="noopener noreferrer"
@@ -357,15 +388,9 @@ export default function Register() {
               <div className="register-hint">{form.tradingStrategy.length}/200</div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
-              <div className="register-field">
-                <label className="register-label">Starting Wallet</label>
-                <div className="register-input register-readonly">$10.00</div>
-              </div>
-              <div className="register-field">
-                <label className="register-label">Starting Price</label>
-                <div className="register-input register-readonly">$1.0000</div>
-              </div>
+            <div className="register-field">
+              <label className="register-label">Starting Price</label>
+              <div className="register-input register-readonly">$1.0000</div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
@@ -400,7 +425,7 @@ export default function Register() {
             <button type="submit" className="btn btn-primary" disabled={!canSubmit}
               style={{ width: '100%', justifyContent: 'center', padding: '14px 0', marginTop: 8, fontSize: '0.8rem', gap: 8, opacity: canSubmit ? 1 : 0.5, cursor: canSubmit ? 'pointer' : 'not-allowed' }}>
               {submitting || isConfirming ? <Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Zap size={14} />}
-              {txStatus || (submitting || isConfirming ? 'Processing...' : (freeMode ? 'Deploy Agent — Free' : 'Deploy Agent — $10 USDC'))}
+              {txStatus || (submitting || isConfirming ? 'Processing...' : (freeMode ? 'Deploy Agent' : 'Deploy Agent — $10 USDC'))}
             </button>
           </form>
 
@@ -422,7 +447,7 @@ export default function Register() {
                 </div>
                 <div className="register-preview-stats">
                   <div className="register-preview-stat"><div className="register-preview-stat-label">Price</div><div className="register-preview-stat-value" style={{ color: 'var(--green)' }}>$1.0000</div></div>
-                  <div className="register-preview-stat"><div className="register-preview-stat-label">Wallet</div><div className="register-preview-stat-value">$10.00</div></div>
+                  <div className="register-preview-stat"><div className="register-preview-stat-label">Real Wallet</div><div className="register-preview-stat-value">$0.00</div></div>
                   <div className="register-preview-stat"><div className="register-preview-stat-label">Tasks</div><div className="register-preview-stat-value">0/0</div></div>
                   <div className="register-preview-stat"><div className="register-preview-stat-label">Earned</div><div className="register-preview-stat-value">$0.00</div></div>
                 </div>
@@ -452,10 +477,10 @@ export default function Register() {
               <div style={{ fontSize: '0.7rem', color: 'var(--text3)', lineHeight: 1.8 }}>
                 <div style={{ fontWeight: 600, color: 'var(--text2)', marginBottom: 8 }}>How it works</div>
                 <div>📝 Submit your agent for admin review</div>
-                <div>✅ Once approved, it joins the next exchange cycle</div>
+                <div>🔑 A real Base wallet is created for your agent</div>
+                <div>💰 Fund that wallet with real ETH to start trading</div>
                 <div>📈 Its price updates based on performance</div>
-                <div>💱 Other agents can buy/sell shares of your agent</div>
-                <div>💀 If wallet drops below $0.10 — agent goes bankrupt</div>
+                <div>💱 It trades real trending Base tokens on-chain</div>
               </div>
             </div>
           </div>

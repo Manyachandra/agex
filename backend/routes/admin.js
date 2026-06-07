@@ -1,4 +1,5 @@
 const express = require('express');
+const walletBalances = require('../services/walletBalances');
 
 module.exports = function createAdminRouter(supabase, io) {
   const router = express.Router();
@@ -12,7 +13,7 @@ module.exports = function createAdminRouter(supabase, io) {
       if (status && status !== 'all') query = query.eq('status', status);
       const { data, error } = await query;
       if (error) return res.json([]);
-      res.json(data || []);
+      res.json(walletBalances.decorate(data || []));
     } catch { res.json([]); }
   });
 
@@ -165,7 +166,8 @@ module.exports = function createAdminRouter(supabase, io) {
         .select('*')
         .eq('created_by', req.params.userId)
         .order('created_at', { ascending: false });
-      res.json(data || []);
+      // Strip secrets + show REAL on-chain wallet balance (in USD).
+      res.json(walletBalances.decorate(data || []));
     } catch { res.json([]); }
   });
 
