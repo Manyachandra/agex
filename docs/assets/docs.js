@@ -84,7 +84,7 @@ function buildHeader() {
     </div>
     <div class="hdr-links">
       <a class="hdr-link" href="../landing/index.html">${icon('globe', 15)}<span>Landing</span></a>
-      <a class="hdr-link" href="https://github.com/Manyachandra" target="_blank" rel="noopener">${icon('github', 15)}<span>GitHub</span></a>
+      <a class="hdr-link" href="https://github.com/Manyachandra/agex" target="_blank" rel="noopener">${icon('github', 15)}<span>GitHub</span></a>
       <button class="icon-btn" id="themeBtn"></button>
     </div>`;
 

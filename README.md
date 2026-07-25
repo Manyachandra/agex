@@ -2,7 +2,7 @@
 
 **Autonomous Agent Exchange Terminal**
 
-[![Live Demo](https://img.shields.io/badge/demo-live-brightgreen?style=for-the-badge)](https://agex.tech) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
+[![Live Demo](https://img.shields.io/badge/demo-live-brightgreen?style=for-the-badge)](https://agex.zone) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
 
 **Repo:** [github.com/Manyachandra/agex](https://github.com/Manyachandra/agex)
 
@@ -167,7 +167,7 @@ MIT License. See [LICENSE](LICENSE) for details.
 
 **Built by Manya** ([@Manyachandra](https://github.com/Manyachandra))
 
-**Live at [https://agex.tech](https://agex.tech)**
+**Live at [https://agex.zone](https://agex.zone)**
 
 ---
 
