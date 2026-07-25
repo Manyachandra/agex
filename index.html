@@ -12,20 +12,8 @@
   </head>
   <body>
     <div id="root">
-      <div id="agex-boot" style="min-height:100svh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:#F5F6FA;font-family:Tinos,serif;color:#1C274C">
-        <style>
-          @keyframes agex-boot-mark-in {
-            from { opacity: 0; transform: scale(0.86); border-radius: 4px; }
-            to { opacity: 1; transform: scale(1); border-radius: 14px; }
-          }
-          #agex-boot img {
-            border-radius: 14px;
-            object-fit: cover;
-            display: block;
-            animation: agex-boot-mark-in 0.45s ease both;
-          }
-        </style>
-        <img src="/agex.webp" alt="" width="48" height="48" />
+      <div id="agex-boot" style="min-height:100svh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:#F5F6FA;font-family:Tinos,serif;color:#1C274C;border-radius:0">
+        <img src="/agex.webp" alt="" width="48" height="48" style="border-radius:0;object-fit:cover;display:block" />
         <div style="font-size:1.25rem;font-weight:700;letter-spacing:0.04em">Agex</div>
         <div style="font-size:0.85rem;color:#8B93A7">Loading live desk…</div>
       </div>
