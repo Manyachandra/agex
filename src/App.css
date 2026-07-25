@@ -82,8 +82,24 @@ body {
 .desk-boot-mark {
   width: 48px;
   height: 48px;
-  border-radius: 12px;
+  border-radius: 14px;
   object-fit: cover;
+  overflow: hidden;
+  display: block;
+  animation: desk-boot-mark-in 0.45s ease both;
+}
+
+@keyframes desk-boot-mark-in {
+  from {
+    opacity: 0;
+    transform: scale(0.86);
+    border-radius: 4px;
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+    border-radius: 14px;
+  }
 }
 
 .desk-boot-title {
