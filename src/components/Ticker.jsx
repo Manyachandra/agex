@@ -1,9 +1,4 @@
-import { useEffect, useState } from 'react'
-import axios from 'axios'
 import AgentAvatar from './AgentAvatar'
-import { asArray } from '../lib/api'
-import { API_BASE as API } from '../lib/config'
-
 
 function tokenInvestedEth(agent) {
   const h = agent?.token_holdings
@@ -18,17 +13,7 @@ function tokensHeldCount(agent) {
 }
 
 export default function Ticker({ agents: liveAgents }) {
-  const [agents, setAgents] = useState([])
-
-  useEffect(() => {
-    if (Array.isArray(liveAgents) && liveAgents.length > 0) {
-      setAgents(liveAgents)
-    } else {
-      axios.get(`${API}/api/agents`)
-        .then(r => setAgents(asArray(r.data)))
-        .catch(() => setAgents([]))
-    }
-  }, [liveAgents])
+  const agents = Array.isArray(liveAgents) ? liveAgents : []
 
   const ethUsd = (() => {
     const ref = agents.find((a) => parseFloat(a.real_eth || 0) > 0 && parseFloat(a.real_usd || 0) > 0)

@@ -53,42 +53,26 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
   const [activityPage, setActivityPage] = useState(1)
   const [agentsPage, setAgentsPage] = useState(1)
 
-  const fetchAll = async () => {
-    try {
-      const [ag, tr, ac, tt] = await Promise.all([
-        axios.get(`${API}/api/agents`).catch(() => ({ data: [] })),
-        axios.get(`${API}/api/treasury`).catch(() => ({ data: null })),
-        axios.get(`${API}/api/activity?limit=200`).catch(() => ({ data: [] })),
-        axios.get(`${API}/api/token-trades?limit=1000`).catch(() => ({ data: [] }))
-      ])
-      const agentList = asArray(ag.data)
-      setAgents(agentList)
-      setTreasury(tr.data)
+  // Agents/treasury come from AppLayout — only fetch chart + activity extras here.
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([
+      axios.get(`${API}/api/activity?limit=40&types=real_trade,fee`).catch(() => ({ data: [] })),
+      axios.get(`${API}/api/token-trades?limit=200&fields=slim`).catch(() => ({ data: [] })),
+    ]).then(([ac, tt]) => {
+      if (cancelled) return
       setActivity(realActivityRows(ac.data))
       setTokenTrades(asArray(tt.data))
-    } catch (err) {
-      console.error('Dashboard fetch error:', err)
-    }
-  }
-
-  useEffect(() => {
-    // Fast path: load agents immediately for leader + portfolio cards
-    Promise.all([
-      axios.get(`${API}/api/agents`).catch(() => ({ data: [] })),
-      axios.get(`${API}/api/treasury`).catch(() => ({ data: null }))
-    ]).then(([ag, tr]) => {
-      const quick = asArray(ag.data)
-      if (quick.length) setAgents(quick)
-      if (tr.data) setTreasury(tr.data)
     })
-    // Full load runs in parallel
-    fetchAll()
+    return () => { cancelled = true }
   }, [])
 
   useEffect(() => {
     const activityInterval = setInterval(() => {
-      axios.get(`${API}/api/activity?limit=200`).then(r => setActivity(realActivityRows(r.data))).catch(() => {})
-    }, 15000)
+      axios.get(`${API}/api/activity?limit=40&types=real_trade,fee`)
+        .then((r) => setActivity(realActivityRows(r.data)))
+        .catch(() => {})
+    }, 30000)
     return () => clearInterval(activityInterval)
   }, [])
 

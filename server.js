@@ -170,25 +170,44 @@ app.use('/api/funds', createFundsRouter(supabase, io));
 
 // Get all agents
 let agentsCache = null, agentsCacheTime = 0;
+let agentsInflight = null;
 let treasuryCache = null, treasuryCacheTime = 0;
-let activityCache = null, activityCacheTime = 0;
+let activityCache = null, activityCacheTime = 0, activityCacheKey = '';
+let tokenTradesCache = null, tokenTradesCacheTime = 0, tokenTradesCacheKey = '';
 let statsCache = null, statsCacheTime = 0;
 let priceHistoryCache = {}, priceHistoryCacheTime = {};
 const CACHE_TTL = 15000;
+
+// Desk list: omit encrypted keys + long strategy text (use /mine or single-agent for those).
+const AGENTS_DESK_COLUMNS = [
+  'ticker', 'full_name', 'style', 'avatar_url', 'token_holdings',
+  'creator_name', 'creator_twitter', 'wallet_address', 'deploy_wallet',
+  'price', 'status', 'cycle_count', 'created_at', 'shares_owned',
+  'wallet', 'tasks_completed', 'total_earned',
+].join(',');
 
 app.get('/api/agents', async (req, res) => {
   const now = Date.now();
   if (agentsCache && (now - agentsCacheTime) < CACHE_TTL) {
     return res.json(agentsCache);
   }
-  const { data, error } = await supabase
-    .from('agents')
-    .select('*')
-    .order('price', { ascending: false });
-  if (error) return res.status(500).json({ error });
-  agentsCache = stripAgentSecrets(data);
-  agentsCacheTime = now;
-  res.json(agentsCache);
+  try {
+    if (!agentsInflight) {
+      agentsInflight = (async () => {
+        const { data, error } = await supabase
+          .from('agents')
+          .select(AGENTS_DESK_COLUMNS)
+          .order('price', { ascending: false });
+        if (error) throw error;
+        agentsCache = stripAgentSecrets(data);
+        agentsCacheTime = Date.now();
+        return agentsCache;
+      })().finally(() => { agentsInflight = null; });
+    }
+    res.json(await agentsInflight);
+  } catch (error) {
+    res.status(500).json({ error });
+  }
 });
 
 // Owner's agents (by deploy_wallet / created_by)
@@ -395,35 +414,74 @@ app.get('/api/fees', async (req, res) => {
 });
 
 // Real on-chain token trades (ETH <-> trending tokens). Optional ?ticker=
-// filters to a single agent's history.
+// filters to a single agent's history. ?fields=slim returns chart/KPI columns only.
 app.get('/api/token-trades', async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit, 10) || 1000, 5000);
+    const ticker = req.query.ticker ? String(req.query.ticker) : '';
+    const slim = String(req.query.fields || '') === 'slim';
+    const cacheKey = `${ticker}|${limit}|${slim ? 'slim' : 'full'}`;
+    const now = Date.now();
+    if (
+      !ticker &&
+      tokenTradesCache &&
+      tokenTradesCacheKey === cacheKey &&
+      (now - tokenTradesCacheTime) < CACHE_TTL
+    ) {
+      return res.json(tokenTradesCache);
+    }
+
+    const columns = slim
+      ? 'agent_ticker, eth_amount, side, created_at, tx_hash, token_symbol'
+      : '*';
     let query = supabase
       .from('agent_token_trades')
-      .select('*')
+      .select(columns)
       .order('created_at', { ascending: false })
       .limit(limit);
-    if (req.query.ticker) query = query.eq('agent_ticker', req.query.ticker);
+    if (ticker) query = query.eq('agent_ticker', ticker);
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
-    res.json(data || []);
+    const rows = data || [];
+    if (!ticker) {
+      tokenTradesCache = rows;
+      tokenTradesCacheKey = cacheKey;
+      tokenTradesCacheTime = Date.now();
+    }
+    res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Get activity
+// Get activity. Optional ?types=real_trade,fee filters action_type.
 app.get('/api/activity', async (req, res) => {
-  const limit = parseInt(req.query.limit) || 50;
+  const limit = Math.min(parseInt(req.query.limit, 10) || 50, 400);
+  const types = String(req.query.types || '')
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean);
+  const cacheKey = types.length ? `types:${types.sort().join(',')}` : 'all';
   const now = Date.now();
-  if (activityCache && (now - activityCacheTime) < CACHE_TTL) return res.json(activityCache.slice(0, limit));
-  const { data, error } = await supabase
-    .from('activity').select('*').order('created_at', { ascending: false }).limit(200);
+  if (
+    activityCache &&
+    activityCacheKey === cacheKey &&
+    (now - activityCacheTime) < CACHE_TTL
+  ) {
+    return res.json(activityCache.slice(0, limit));
+  }
+  let query = supabase
+    .from('activity')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(Math.max(limit, 200));
+  if (types.length) query = query.in('action_type', types);
+  const { data, error } = await query;
   if (error) return res.status(500).json({ error });
-  activityCache = data;
+  activityCache = data || [];
+  activityCacheKey = cacheKey;
   activityCacheTime = Date.now();
-  res.json((data || []).slice(0, limit));
+  res.json(activityCache.slice(0, limit));
 });
 
 // Get treasury
@@ -436,21 +494,16 @@ app.get('/api/treasury', async (req, res) => {
     return res.json({ total_fees: 0, total_trades: 0, total_tasks: 0, exchange_wallet: 0 });
   }
 
-  // Prefer live on-chain counters for desk KPIs (legacy treasury rows can be stale
-  // after the Robinhood Chain cutover / duplicate-row bug).
+  // Prefer stored treasury counters. Only refresh trade count with a cheap HEAD count —
+  // do NOT scan every fee activity row on each request (that made the desk feel slow).
   let totalTrades = parseInt(row.total_trades, 10) || 0;
-  let totalFees = parseFloat(row.total_fees) || 0;
+  const totalFees = parseFloat(row.total_fees) || 0;
   try {
-    const [{ count: onChainTrades }, feeRes] = await Promise.all([
-      supabase.from('agent_token_trades').select('id', { count: 'exact', head: true }),
-      supabase.from('activity').select('amount').eq('action_type', 'fee'),
-    ]);
+    const { count: onChainTrades } = await supabase
+      .from('agent_token_trades')
+      .select('id', { count: 'exact', head: true });
     if (typeof onChainTrades === 'number' && onChainTrades > 0) {
       totalTrades = onChainTrades;
-    }
-    const feeSum = (feeRes.data || []).reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
-    if (feeSum > 0) {
-      totalFees = feeSum;
     }
   } catch (e) {
     console.error('treasury live counters error:', e.message);

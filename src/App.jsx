@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { socket } from './lib/socket'
-import { AuthProvider, useAuth } from './context/AuthContext'
+import { AuthProvider } from './context/AuthContext'
 import TopNav from './components/TopNav'
 import BottomDock from './components/BottomDock'
 import Ticker from './components/Ticker'
@@ -18,31 +18,43 @@ import Profile from './pages/Profile'
 import { asArray } from './lib/api'
 import { API_BASE } from './lib/config'
 
+async function loadDeskSnapshot() {
+  const [agRes, trRes] = await Promise.all([
+    fetch(`${API_BASE}/api/agents`).then((r) => r.json()),
+    fetch(`${API_BASE}/api/treasury`).then((r) => r.json()),
+  ])
+  return {
+    agents: Array.isArray(agRes) ? agRes : [],
+    treasury: trRes && typeof trRes === 'object' && !trRes.error ? trRes : null,
+  }
+}
+
 function AppLayout() {
-  const { loading: authLoading } = useAuth()
   const [agents, setAgents] = useState([])
   const [treasury, setTreasury] = useState(null)
   const [connected, setConnected] = useState(false)
 
   useEffect(() => {
+    let cancelled = false
+    loadDeskSnapshot()
+      .then(({ agents: nextAgents, treasury: nextTreasury }) => {
+        if (cancelled) return
+        setAgents(nextAgents)
+        setTreasury(nextTreasury)
+      })
+      .catch(() => {})
+
     const onConnect = () => setConnected(true)
     const onDisconnect = () => setConnected(false)
     const onUpdate = async (data) => {
+      // Prefer payload from cycle-complete; avoid refetch storms on every trade tick.
       if (data.agents != null && data.treasury != null) {
         setAgents(asArray(data.agents))
         setTreasury(data.treasury)
-      } else {
-        try {
-          const [agRes, trRes] = await Promise.all([
-            fetch(`${API_BASE}/api/agents`).then((r) => r.json()),
-            fetch(`${API_BASE}/api/treasury`).then((r) => r.json())
-          ])
-          setAgents(Array.isArray(agRes) ? agRes : [])
-          setTreasury(trRes && typeof trRes === 'object' ? trRes : null)
-        } catch {
-          // keep existing state
-        }
+        return
       }
+      if (data.agents != null) setAgents(asArray(data.agents))
+      if (data.treasury != null) setTreasury(data.treasury)
     }
 
     socket.on('connect', onConnect)
@@ -53,13 +65,12 @@ function AppLayout() {
     if (!socket.connected) socket.connect()
 
     return () => {
+      cancelled = true
       socket.off('connect', onConnect)
       socket.off('disconnect', onDisconnect)
       socket.off('exchange-update', onUpdate)
     }
   }, [])
-
-  if (authLoading) return null
 
   return (
     <div className="terminal-root">
