@@ -68,6 +68,58 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 
+.desk-boot {
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.desk-boot-mark {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  object-fit: cover;
+}
+
+.desk-boot-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.desk-boot-sub {
+  font-size: 0.85rem;
+  color: var(--text3);
+}
+
+.desk-boot-bar {
+  width: 120px;
+  height: 3px;
+  margin-top: 8px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.desk-boot-bar span {
+  display: block;
+  width: 40%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--brand-gradient);
+  animation: desk-boot-slide 1s ease-in-out infinite;
+}
+
+@keyframes desk-boot-slide {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(320%); }
+}
+
 .tinos-regular {
   font-family: "Tinos", serif;
   font-weight: 400;

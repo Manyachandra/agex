@@ -18,36 +18,77 @@ import Profile from './pages/Profile'
 import { asArray } from './lib/api'
 import { API_BASE } from './lib/config'
 
-async function loadDeskSnapshot() {
-  const [agRes, trRes] = await Promise.all([
-    fetch(`${API_BASE}/api/agents`).then((r) => r.json()),
-    fetch(`${API_BASE}/api/treasury`).then((r) => r.json()),
+function asTreasury(data) {
+  return data && typeof data === 'object' && !data.error ? data : null
+}
+
+/** Load desk KPIs + dashboard panels together so the UI never paints empty. */
+async function loadDeskBootstrap() {
+  const [agRes, trRes, acRes, ttRes] = await Promise.all([
+    fetch(`${API_BASE}/api/agents`).then((r) => r.json()).catch(() => []),
+    fetch(`${API_BASE}/api/treasury`).then((r) => r.json()).catch(() => null),
+    fetch(`${API_BASE}/api/activity?limit=40&types=real_trade,fee`).then((r) => r.json()).catch(() => []),
+    fetch(`${API_BASE}/api/token-trades?limit=200&fields=slim`).then((r) => r.json()).catch(() => []),
   ])
   return {
     agents: Array.isArray(agRes) ? agRes : [],
-    treasury: trRes && typeof trRes === 'object' && !trRes.error ? trRes : null,
+    treasury: asTreasury(trRes),
+    activity: asArray(acRes).filter((item) => ['real_trade', 'fee'].includes(item.action_type)),
+    tokenTrades: asArray(ttRes),
   }
+}
+
+function DeskBootScreen({ error }) {
+  return (
+    <div className="desk-boot" role="status" aria-live="polite">
+      <img src="/agex.webp" alt="" className="desk-boot-mark" />
+      <div className="desk-boot-title">Agex</div>
+      <div className="desk-boot-sub">
+        {error ? 'Could not reach the desk. Retrying…' : 'Loading live desk…'}
+      </div>
+      <div className="desk-boot-bar" aria-hidden="true">
+        <span />
+      </div>
+    </div>
+  )
 }
 
 function AppLayout() {
   const [agents, setAgents] = useState([])
   const [treasury, setTreasury] = useState(null)
-  const [connected, setConnected] = useState(false)
+  const [activity, setActivity] = useState([])
+  const [tokenTrades, setTokenTrades] = useState([])
+  const [ready, setReady] = useState(false)
+  const [bootError, setBootError] = useState(false)
 
   useEffect(() => {
     let cancelled = false
-    loadDeskSnapshot()
-      .then(({ agents: nextAgents, treasury: nextTreasury }) => {
-        if (cancelled) return
-        setAgents(nextAgents)
-        setTreasury(nextTreasury)
-      })
-      .catch(() => {})
+    let retryTimer = null
 
-    const onConnect = () => setConnected(true)
-    const onDisconnect = () => setConnected(false)
-    const onUpdate = async (data) => {
-      // Prefer payload from cycle-complete; avoid refetch storms on every trade tick.
+    const boot = () => {
+      loadDeskBootstrap()
+        .then((snap) => {
+          if (cancelled) return
+          setAgents(snap.agents)
+          setTreasury(snap.treasury)
+          setActivity(snap.activity)
+          setTokenTrades(snap.tokenTrades)
+          setBootError(false)
+          setReady(true)
+          document.getElementById('agex-boot')?.remove()
+        })
+        .catch(() => {
+          if (cancelled) return
+          setBootError(true)
+          retryTimer = setTimeout(boot, 2000)
+        })
+    }
+
+    boot()
+
+    const onConnect = () => {}
+    const onDisconnect = () => {}
+    const onUpdate = (data) => {
       if (data.agents != null && data.treasury != null) {
         setAgents(asArray(data.agents))
         setTreasury(data.treasury)
@@ -60,25 +101,38 @@ function AppLayout() {
     socket.on('connect', onConnect)
     socket.on('disconnect', onDisconnect)
     socket.on('exchange-update', onUpdate)
-
-    if (socket.connected) setConnected(true)
     if (!socket.connected) socket.connect()
 
     return () => {
       cancelled = true
+      if (retryTimer) clearTimeout(retryTimer)
       socket.off('connect', onConnect)
       socket.off('disconnect', onDisconnect)
       socket.off('exchange-update', onUpdate)
     }
   }, [])
 
+  if (!ready) {
+    return <DeskBootScreen error={bootError} />
+  }
+
   return (
-    <div className="terminal-root">
+    <div className="terminal-root fade-in">
       <Ticker agents={agents} />
       <TopNav />
       <main className="terminal-main">
         <Routes>
-          <Route path="/" element={<Dashboard agents={agents} treasury={treasury} />} />
+          <Route
+            path="/"
+            element={
+              <Dashboard
+                agents={agents}
+                treasury={treasury}
+                initialActivity={activity}
+                initialTokenTrades={tokenTrades}
+              />
+            }
+          />
           <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/agents" element={<AgentProfiles />} />
           <Route path="/register" element={<Register />} />

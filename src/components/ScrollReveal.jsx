@@ -28,50 +28,39 @@ export function ScrollReveal({ children, delay = 0, style = {} }) {
 }
 
 export function CountUp({ value, prefix = '', suffix = '', decimals = 0, duration = 1200 }) {
-  const [display, setDisplay] = useState(0)
-  const ref = useRef(null)
-  const startedRef = useRef(false)
-
-  const hasValue = parseFloat(value) > 0
+  const target = parseFloat(value) || 0
+  // First paint shows the real number — no 0 → N flash that feels like late data.
+  const [display, setDisplay] = useState(target)
+  const firstPaint = useRef(true)
 
   useEffect(() => {
-    if (!hasValue) return
-    const el = ref.current
-    if (!el) return
-    const animate = () => {
-      startedRef.current = true
-      const target = parseFloat(value) || 0
-      const startTime = performance.now()
-      const tick = (now) => {
-        const progress = Math.min((now - startTime) / duration, 1)
-        const ease = 1 - Math.pow(1 - progress, 3)
-        setDisplay(ease * target)
-        if (progress < 1) requestAnimationFrame(tick)
-      }
-      requestAnimationFrame(tick)
+    if (firstPaint.current) {
+      firstPaint.current = false
+      setDisplay(target)
+      return
     }
 
-    const observer = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting) {
-        animate()
-        observer.disconnect()
-      }
-    }, { threshold: 0.3 })
-
-    // If already visible in DOM, animate directly
-    const rect = el.getBoundingClientRect()
-    const alreadyVisible = rect.top < window.innerHeight && rect.bottom > 0
-    if (alreadyVisible) {
-      animate()
-    } else {
-      observer.observe(el)
+    if (duration <= 0) {
+      setDisplay(target)
+      return
     }
 
-    return () => observer.disconnect()
-  }, [value, hasValue, duration])
+    const start = display
+    const startTime = performance.now()
+    let raf = 0
+    const tick = (now) => {
+      const progress = Math.min((now - startTime) / duration, 1)
+      const ease = 1 - Math.pow(1 - progress, 3)
+      setDisplay(start + (target - start) * ease)
+      if (progress < 1) raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- animate from last displayed value
+  }, [value, duration, target])
 
   return (
-    <span ref={ref}>
+    <span>
       {prefix}{typeof decimals === 'number' ? display.toFixed(decimals) : Math.floor(display)}{suffix}
     </span>
   )

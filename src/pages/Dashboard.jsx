@@ -44,28 +44,28 @@ function agentColor(ticker) {
   return `hsl(${h}, 60%, 50%)`
 }
 
-export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }) {
-  const [agents, setAgents] = useState(liveAgents || [])
-  const [treasury, setTreasury] = useState(liveTreasury || null)
-  const [activity, setActivity] = useState([])
-  const [tokenTrades, setTokenTrades] = useState([])
+export default function Dashboard({
+  agents: liveAgents,
+  treasury: liveTreasury,
+  initialActivity = [],
+  initialTokenTrades = [],
+}) {
+  const [agents, setAgents] = useState(() => (Array.isArray(liveAgents) ? liveAgents : []))
+  const [treasury, setTreasury] = useState(() => liveTreasury || null)
+  const [activity, setActivity] = useState(() => asArray(initialActivity))
+  const [tokenTrades, setTokenTrades] = useState(() => asArray(initialTokenTrades))
   const [holdingsModalAgent, setHoldingsModalAgent] = useState(null)
   const [activityPage, setActivityPage] = useState(1)
   const [agentsPage, setAgentsPage] = useState(1)
 
-  // Agents/treasury come from AppLayout — only fetch chart + activity extras here.
+  // Keep in sync with App bootstrap / socket updates — no second empty paint.
   useEffect(() => {
-    let cancelled = false
-    Promise.all([
-      axios.get(`${API}/api/activity?limit=40&types=real_trade,fee`).catch(() => ({ data: [] })),
-      axios.get(`${API}/api/token-trades?limit=200&fields=slim`).catch(() => ({ data: [] })),
-    ]).then(([ac, tt]) => {
-      if (cancelled) return
-      setActivity(realActivityRows(ac.data))
-      setTokenTrades(asArray(tt.data))
-    })
-    return () => { cancelled = true }
-  }, [])
+    if (Array.isArray(liveAgents)) setAgents(liveAgents)
+  }, [liveAgents])
+
+  useEffect(() => {
+    if (liveTreasury) setTreasury(liveTreasury)
+  }, [liveTreasury])
 
   useEffect(() => {
     const activityInterval = setInterval(() => {
@@ -75,11 +75,6 @@ export default function Dashboard({ agents: liveAgents, treasury: liveTreasury }
     }, 30000)
     return () => clearInterval(activityInterval)
   }, [])
-
-  useEffect(() => {
-    if (Array.isArray(liveAgents) && liveAgents.length) setAgents(liveAgents)
-    if (liveTreasury) setTreasury(liveTreasury)
-  }, [liveAgents, liveTreasury])
 
   const ethUsd = (() => {
     const ref = agents.find((a) => parseFloat(a.real_eth || 0) > 0 && parseFloat(a.real_usd || 0) > 0)
