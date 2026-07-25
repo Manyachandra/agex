@@ -28,6 +28,12 @@ export default defineConfig({
   preview: {
     host: '0.0.0.0',
     port: 3000,
-    allowedHosts: ['agex.zone', 'www.agex.zone']
+    allowedHosts: [
+      'agex.zone',
+      'www.agex.zone',
+      'docs.agex.zone',
+      'app.agex.zone',
+      'www.app.agex.zone',
+    ]
   }
 })

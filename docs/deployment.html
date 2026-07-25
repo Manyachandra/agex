@@ -53,7 +53,7 @@ pm2 startup</code></pre>
   The trading engines run on in-process timers. A second replica would execute every cycle twice and
   double the real spend.</div>
 </div>
-<p>Behind nginx, WebSocket upgrade headers must be forwarded:</p>
+<p>Behind nginx, WebSocket upgrade headers must be forwarded on the app host:</p>
 <pre><code>location / {
   proxy_pass http://127.0.0.1:5000;
   proxy_http_version 1.1;
@@ -61,13 +61,30 @@ pm2 startup</code></pre>
   proxy_set_header Connection "upgrade";
   proxy_set_header Host $host;
   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  proxy_set_header X-Forwarded-Proto $scheme;
 }</code></pre>
+
+<h2>Production hosts (subdomains)</h2>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Host</th><th>Serves</th></tr></thead>
+<tbody>
+<tr><td><code>www.agex.zone</code> / <code>agex.zone</code></td><td>Landing (<code>landing/</code> as site root)</td></tr>
+<tr><td><code>docs.agex.zone</code></td><td>Docs (<code>docs/</code> as site root)</td></tr>
+<tr><td><code>www.app.agex.zone</code> / <code>app.agex.zone</code></td><td>Desk + API + Socket.io (proxy to Node <code>:5000</code>)</td></tr>
+</tbody>
+</table>
+</div>
+<p>
+  DNS <code>A</code> records for each name point at the VPS. Issue one cert covering all names, then
+  rebuild the desk so deep links and nav match the hosts.
+</p>
 
 <h2>Same-origin desk</h2>
 <p>
-  Production builds leave <code>VITE_API_URL</code> empty (see <code>.env.production</code>) so the desk
-  calls <code>/api</code> and Socket.io on the same host Express is serving. Optional: the repo still
-  includes <code>vercel.json</code> if you ever host <code>dist/</code> alone.
+  Production builds leave <code>VITE_API_URL</code> empty (see <code>.env.production</code>) so the desk on
+  <code>www.app.agex.zone</code> calls <code>/api</code> and Socket.io on the same host. The landing page
+  calls the API at <code>https://www.app.agex.zone</code> for live stats.
 </p>
 <p>Build-time desk variables:</p>
 <pre><code>VITE_API_URL=
@@ -77,15 +94,16 @@ VITE_WALLETCONNECT_PROJECT_ID=…</code></pre>
 
 <h2>Landing page</h2>
 <p>
-  <code>landing/</code> is a single HTML file with its image assets and no build step. Upload the folder
-  to any static host or CDN, or use <code>/landing</code> when served by <code>server.js</code>.
+  <code>landing/</code> is a single HTML file with its image assets and no build step. In production
+  Nginx serves it at <code>www.agex.zone</code>. Locally you can still open
+  <code>landing/index.html</code> or visit <code>/landing</code> on the API process.
 </p>
 
 <h2>Docs</h2>
 <p>
   This site is also static — plain HTML plus <code>assets/docs.css</code>,
-  <code>assets/icons.js</code> and <code>assets/docs.js</code>. Serve the <code>docs/</code> folder
-  directly, for example on GitHub Pages, with <code>index.html</code> as the entry point.
+  <code>assets/icons.js</code> and <code>assets/docs.js</code>. In production Nginx serves
+  <code>docs/</code> at <code>docs.agex.zone</code>.
 </p>
 
 <h2>Post-deploy checklist</h2>

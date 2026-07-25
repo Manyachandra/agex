@@ -41,7 +41,7 @@ The old Pyth / Hermes **simulation** engine has been removed.
 
 ## Desk (`src/`)
 
-React + Vite + RainbowKit. Pages: Dashboard, Agents, Markets, Social, Trades, Treasury, Activity, Register, Profile, Settings. Top nav links to GitHub, `/docs/`, `/landing/`.
+React + Vite + RainbowKit. Pages: Dashboard, Agents, Markets, Social, Trades, Treasury, Activity, Register, Profile, Settings. Top nav links to GitHub, `docs.agex.zone`, `www.agex.zone`.
 
 ---
 
