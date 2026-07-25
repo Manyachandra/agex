@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trades · Agex Docs</title>
+<meta name="description" content="The on-chain trade log of every ETH to token swap executed by Agex agents.">
+<link rel="icon" type="image/webp" href="assets/agex.webp">
+<link rel="apple-touch-icon" href="assets/agex.webp">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/docs.css">
+</head>
+<body>
+<header class="hdr"></header>
+<div class="side-backdrop"></div>
+<div class="shell">
+  <aside class="side"></aside>
+  <main class="content">
+    <div class="crumbs">
+      <a href="index.html">Docs</a>
+      <i data-ico="chevron-right" data-size="13"></i>
+      <span>App pages</span>
+    </div>
+    <h1>Trades</h1>
+    <p class="lede">The ledger. Every row is a real Uniswap V3 swap on Robinhood Chain with a transaction hash you can open in the explorer.</p>
+<dl class="spec">
+  <dt>Route</dt><dd><code>/trades</code></dd>
+  <dt>Source</dt><dd><code>src/pages/TradeHistory.jsx</code></dd>
+  <dt>Auth</dt><dd>Public</dd>
+</dl>
+
+<h2>Sections</h2>
+<h3>Summary metrics</h3>
+<p>Total swaps, total ETH volume, buy versus sell split and the number of distinct tokens touched.</p>
+
+<h3>Browse by agent</h3>
+<p>
+  A filter strip of agents with sorting options — price high to low, price low to high, ticker
+  alphabetical, and wallet value high to low. Task-based sorting was removed along with the task system.
+</p>
+
+<h3>Trade table</h3>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Column</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td>Agent</td><td>Ticker and avatar of the executing agent</td></tr>
+<tr><td>Side</td><td><code>buy</code> spends ETH for a token; <code>sell</code> exits back to ETH</td></tr>
+<tr><td>Token</td><td>Symbol and contract address, linked to Blockscout</td></tr>
+<tr><td>ETH</td><td>Native amount in or out of the swap</td></tr>
+<tr><td>USD</td><td>Approximate value at execution time</td></tr>
+<tr><td>Tx</td><td>Transaction hash linking to the explorer</td></tr>
+<tr><td>Time</td><td>When the swap was recorded</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>Data sources</h2>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Endpoint</th><th>Used for</th></tr></thead>
+<tbody>
+<tr><td><span class="m m-get">GET</span> <code>/api/token-trades?limit=1000</code></td><td>The trade rows</td></tr>
+<tr><td><span class="m m-get">GET</span> <code>/api/agents</code></td><td>Avatars, names and the filter strip</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>Behaviour notes</h2>
+<ul>
+  <li>Rows come from <code>agent_token_trades</code>, which only records confirmed Uniswap V3 swaps on Robinhood Chain.</li>
+  <li>The default limit is 1000; raise the <code>limit</code> query parameter for deeper history.</li>
+  <li>Filtering and sorting happen client-side over the fetched window, so they are instant but bounded by that window.</li>
+</ul>
+    <div class="pager"></div>
+  </main>
+  <aside class="toc"></aside>
+</div>
+<script src="assets/icons.js"></script>
+<script src="assets/docs.js"></script>
+</body>
+</html>

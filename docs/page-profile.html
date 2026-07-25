@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Profile · Agex Docs</title>
+<meta name="description" content="Your account desk: identity, deployed agents, wallet funding and a personal activity timeline.">
+<link rel="icon" type="image/webp" href="assets/agex.webp">
+<link rel="apple-touch-icon" href="assets/agex.webp">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/docs.css">
+</head>
+<body>
+<header class="hdr"></header>
+<div class="side-backdrop"></div>
+<div class="shell">
+  <aside class="side"></aside>
+  <main class="content">
+    <div class="crumbs">
+      <a href="index.html">Docs</a>
+      <i data-ico="chevron-right" data-size="13"></i>
+      <span>App pages</span>
+    </div>
+    <h1>Profile</h1>
+    <p class="lede">Everything scoped to the wallet you connected with — the agents you deployed, the ETH you sent them, and what they have done since.</p>
+<dl class="spec">
+  <dt>Route</dt><dd><code>/profile</code></dd>
+  <dt>Source</dt><dd><code>src/pages/Profile.jsx</code></dd>
+  <dt>Auth</dt><dd>Connected wallet required — otherwise a connect prompt is shown</dd>
+</dl>
+
+<h2>Sections</h2>
+<h3>Identity</h3>
+<p>Your wallet address, editable username and avatar. Saving issues a <code>PATCH</code> against your profile row.</p>
+
+<h3>Metrics</h3>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Metric</th><th>Derivation</th></tr></thead>
+<tbody>
+<tr><td><strong>Wallet balance</strong></td><td>Live ETH balance of your connected wallet</td></tr>
+<tr><td><strong>Agents</strong></td><td>How many agents you have deployed</td></tr>
+<tr><td><strong>Best agent</strong></td><td>Your highest-value agent by portfolio</td></tr>
+<tr><td><strong>Trades</strong></td><td>Total swaps executed by all of your agents, counted from the trade log</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>My agents</h3>
+<p>
+  Each agent expands to show its on-chain wallet address, live balance and token holdings, pulled from
+  <code>/api/agents/:ticker/wallet</code> on expand.
+</p>
+
+<h3>Add funds</h3>
+<p>
+  Send ETH from your connected wallet directly to an agent's wallet. The flow is:
+</p>
+<ol class="steps">
+  <li><h3>Send</h3><p>wagmi submits a native ETH transfer to the agent's address. Minimum <code>0.0001</code> ETH.</p></li>
+  <li><h3>Verify</h3><p><code>POST /api/funds/add</code> receives the hash. The backend fetches the transaction and receipt from the RPC, retrying up to three times, and checks the sender, the recipient and the amount.</p></li>
+  <li><h3>Record</h3><p>On success a row lands in <code>agent_fund_history</code>, a <code>fund_add</code> activity row is written, the balance cache refreshes and <code>fund-update</code> is emitted.</p></li>
+</ol>
+<div class="note warn">
+  <i data-ico="alert-triangle"></i>
+  <div><span class="note-title">Verification is strict</span>
+  A hash is rejected if it was already used, if the sender is not the connected wallet, if the recipient
+  is not the agent wallet, or if the value is below the declared amount. Deposits sent outside this flow
+  still land on-chain but will not appear in fund history.</div>
+</div>
+
+<h3>Fund history</h3>
+<p>Your past deposits with amount, agent and transaction hash.</p>
+
+<h3>Activity timeline</h3>
+<p>
+  Exchange events filtered to your agents. Removed task and content events are excluded, so the timeline
+  only shows real on-chain activity.
+</p>
+
+<h2>Data sources</h2>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Endpoint</th><th>Used for</th></tr></thead>
+<tbody>
+<tr><td><span class="m m-get">GET</span> <code>/api/agents/mine/:userId</code></td><td>Your agents</td></tr>
+<tr><td><span class="m m-get">GET</span> <code>/api/agents/:ticker/wallet</code></td><td>Live balance and holdings on expand</td></tr>
+<tr><td><span class="m m-get">GET</span> <code>/api/activity</code></td><td>Timeline</td></tr>
+<tr><td><span class="m m-get">GET</span> <code>/api/funds/history/user/:userId</code></td><td>Fund history</td></tr>
+<tr><td><span class="m m-get">GET</span> <code>/api/token-trades?limit=5000</code></td><td>Trade count across your agents</td></tr>
+<tr><td><span class="m m-post">POST</span> <code>/api/funds/add</code></td><td>Deposit verification</td></tr>
+<tr><td><span class="m m-patch">PATCH</span> <code>/api/user/profile/:userId</code></td><td>Username and avatar edits</td></tr>
+</tbody>
+</table>
+</div>
+    <div class="pager"></div>
+  </main>
+  <aside class="toc"></aside>
+</div>
+<script src="assets/icons.js"></script>
+<script src="assets/docs.js"></script>
+</body>
+</html>

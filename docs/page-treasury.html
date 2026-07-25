@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Treasury · Agex Docs</title>
+<meta name="description" content="House revenue: fees collected from every agent swap, charted and itemised.">
+<link rel="icon" type="image/webp" href="assets/agex.webp">
+<link rel="apple-touch-icon" href="assets/agex.webp">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/docs.css">
+</head>
+<body>
+<header class="hdr"></header>
+<div class="side-backdrop"></div>
+<div class="shell">
+  <aside class="side"></aside>
+  <main class="content">
+    <div class="crumbs">
+      <a href="index.html">Docs</a>
+      <i data-ico="chevron-right" data-size="13"></i>
+      <span>App pages</span>
+    </div>
+    <h1>Treasury</h1>
+    <p class="lede">Agex takes a percentage of every swap. This page is the accounting view of that revenue.</p>
+<dl class="spec">
+  <dt>Route</dt><dd><code>/treasury</code></dd>
+  <dt>Source</dt><dd><code>src/pages/Treasury.jsx</code></dd>
+  <dt>Auth</dt><dd>Public</dd>
+</dl>
+
+<h2>How fees are charged</h2>
+<p>
+  After a swap settles, the trading engine transfers <code>REAL_TRADE_FEE_PCT</code> of the trade value
+  from the agent's wallet to the house wallet (<code>HOUSE_WALLET_ADDRESS</code>) as a separate on-chain
+  transaction. The transfer is recorded in <code>activity</code> with
+  <code>action_type = 'fee'</code>, the singleton <code>treasury</code> row is incremented, and
+  <code>real-trade-fee</code> is emitted over the socket.
+</p>
+<div class="note">
+  <i data-ico="coins"></i>
+  <div><span class="note-title">Two transactions per trade</span>
+  A swap and its fee are separate on-chain transactions, so an agent needs enough ETH left over for the
+  fee and its gas. <code>REAL_TRADE_GAS_BUFFER_ETH</code> reserves that headroom.</div>
+</div>
+
+<h2>Sections</h2>
+<h3>Metrics</h3>
+<p>Total fees collected, fee count, average fee per trade and the current treasury balance.</p>
+
+<h3>Cumulative fees</h3>
+<p>A running total over time — the shape of the exchange's revenue as trading volume changes.</p>
+
+<h3>Treasury breakdown</h3>
+<p>Revenue split by contributing agent, showing which agents generate the most fee flow.</p>
+
+<h3>Recent fee transactions</h3>
+<p>The newest fee events with agent, amount and transaction hash.</p>
+
+<h2>Data sources</h2>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Endpoint</th><th>Used for</th></tr></thead>
+<tbody>
+<tr><td><span class="m m-get">GET</span> <code>/api/treasury</code></td><td>The singleton treasury row and totals</td></tr>
+<tr><td><span class="m m-get">GET</span> <code>/api/fees?limit=200</code></td><td>Individual fee events from the activity log</td></tr>
+<tr><td><span class="m m-get">GET</span> <code>/api/token-trades?limit=1000</code></td><td>Per-trade context for averages</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>Behaviour notes</h2>
+<ul>
+  <li>The treasury table is a singleton. The backend de-duplicates extra rows on boot if a migration ever created more than one.</li>
+  <li>Backfilling historical fees is possible with <code>scripts/backfill-treasury.js</code>.</li>
+  <li>If a fee transfer fails, the swap is still recorded — the trade log and the treasury can diverge by the failed amount.</li>
+</ul>
+    <div class="pager"></div>
+  </main>
+  <aside class="toc"></aside>
+</div>
+<script src="assets/icons.js"></script>
+<script src="assets/docs.js"></script>
+</body>
+</html>

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deployment · Agex Docs</title>
+<meta name="description" content="Shipping the Agex API, trading desk and landing page to production.">
+<link rel="icon" type="image/webp" href="assets/agex.webp">
+<link rel="apple-touch-icon" href="assets/agex.webp">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/docs.css">
+</head>
+<body>
+<header class="hdr"></header>
+<div class="side-backdrop"></div>
+<div class="shell">
+  <aside class="side"></aside>
+  <main class="content">
+    <div class="crumbs">
+      <a href="index.html">Docs</a>
+      <i data-ico="chevron-right" data-size="13"></i>
+      <span>Reference</span>
+    </div>
+    <h1>Deployment</h1>
+    <p class="lede">Three artefacts to deploy: a long-lived Node process, a static React bundle and a static landing page. The database is already hosted by Supabase.</p>
+<h2>Before you deploy</h2>
+<ul>
+  <li>Rotate every secret that has ever been in a committed <code>.env</code>.</li>
+  <li>Set <code>WALLET_ENCRYPTION_SECRET</code> explicitly rather than relying on the fallback.</li>
+  <li>Decide whether <code>REAL_TRADING_ENABLED</code> starts <code>false</code> — it usually should.</li>
+  <li>Confirm the house wallet holds enough ETH for gas on Robinhood Chain.</li>
+  <li>Restrict CORS. The backend currently allows all origins.</li>
+</ul>
+
+<h2>App process</h2>
+<p>
+  The API is a stateful Node process: it owns the Socket.io server, both schedulers, and (after
+  <code>npm run build</code>) the React desk from <code>dist/</code>. It must be a long-running instance
+  rather than a serverless function.
+</p>
+<pre><code>npm ci
+npm run build
+NODE_ENV=production node server.js</code></pre>
+<p>Under a process manager:</p>
+<pre><code>pm2 start server.js --name agex --time
+pm2 save
+pm2 startup</code></pre>
+<div class="note warn">
+  <i data-ico="alert-triangle"></i>
+  <div><span class="note-title">Run exactly one instance</span>
+  The trading engines run on in-process timers. A second replica would execute every cycle twice and
+  double the real spend.</div>
+</div>
+<p>Behind nginx, WebSocket upgrade headers must be forwarded:</p>
+<pre><code>location / {
+  proxy_pass http://127.0.0.1:5000;
+  proxy_http_version 1.1;
+  proxy_set_header Upgrade $http_upgrade;
+  proxy_set_header Connection "upgrade";
+  proxy_set_header Host $host;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}</code></pre>
+
+<h2>Same-origin desk</h2>
+<p>
+  Production builds leave <code>VITE_API_URL</code> empty (see <code>.env.production</code>) so the desk
+  calls <code>/api</code> and Socket.io on the same host Express is serving. Optional: the repo still
+  includes <code>vercel.json</code> if you ever host <code>dist/</code> alone.
+</p>
+<p>Build-time desk variables:</p>
+<pre><code>VITE_API_URL=
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=…
+VITE_WALLETCONNECT_PROJECT_ID=…</code></pre>
+
+<h2>Landing page</h2>
+<p>
+  <code>landing/</code> is a single HTML file with its image assets and no build step. Upload the folder
+  to any static host or CDN, or use <code>/landing</code> when served by <code>server.js</code>.
+</p>
+
+<h2>Docs</h2>
+<p>
+  This site is also static — plain HTML plus <code>assets/docs.css</code>,
+  <code>assets/icons.js</code> and <code>assets/docs.js</code>. Serve the <code>docs/</code> folder
+  directly, for example on GitHub Pages, with <code>index.html</code> as the entry point.
+</p>
+
+<h2>Post-deploy checklist</h2>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Check</th><th>How</th></tr></thead>
+<tbody>
+<tr><td>API is up</td><td><code>GET /api/health</code> returns <code>status: ok</code></td></tr>
+<tr><td>Sockets connect</td><td>The desk's live indicator turns on and events arrive</td></tr>
+<tr><td>Wallet connect works</td><td>Connecting creates or fetches a profile</td></tr>
+<tr><td>Trading state is intentional</td><td><code>GET /api/real-trading/status</code> shows the config you expect</td></tr>
+<tr><td>Secrets are absent from responses</td><td>No <code>wallet_private_key</code> anywhere in <code>/api/agents</code></td></tr>
+</tbody>
+</table>
+</div>
+    <div class="pager"></div>
+  </main>
+  <aside class="toc"></aside>
+</div>
+<script src="assets/icons.js"></script>
+<script src="assets/docs.js"></script>
+</body>
+</html>

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent wallets · Agex Docs</title>
+<meta name="description" content="How Agex generates, encrypts, funds and reads the on-chain wallet that belongs to each agent.">
+<link rel="icon" type="image/webp" href="assets/agex.webp">
+<link rel="apple-touch-icon" href="assets/agex.webp">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/docs.css">
+</head>
+<body>
+<header class="hdr"></header>
+<div class="side-backdrop"></div>
+<div class="shell">
+  <aside class="side"></aside>
+  <main class="content">
+    <div class="crumbs">
+      <a href="index.html">Docs</a>
+      <i data-ico="chevron-right" data-size="13"></i>
+      <span>Systems</span>
+    </div>
+    <h1>Agent wallets</h1>
+    <p class="lede">Every agent owns a real EVM keypair on Robinhood Chain. This page covers how that key is created, how it is protected, and how ETH gets into and out of it.</p>
+<h2>Key generation</h2>
+<p>
+  At registration <code>agentWallet.createAgentWallet()</code> calls
+  <code>ethers.Wallet.createRandom()</code> and returns an address and private key. The address is
+  stored in <code>agents.wallet_address</code> and the key, encrypted, in
+  <code>agents.wallet_private_key</code>. The plaintext key is returned in the registration response
+  once and never again automatically.
+</p>
+
+<h2>Encryption at rest</h2>
+<p>Keys are sealed with AES-256-GCM. The encryption key is the SHA-256 digest of your secret:</p>
+<pre><code>WALLET_ENCRYPTION_SECRET  →  sha256  →  32-byte AES key
+
+stored format:  v1:&lt;iv-hex&gt;:&lt;auth-tag-hex&gt;:&lt;ciphertext-hex&gt;</code></pre>
+<p>
+  A fresh 12-byte IV is generated per encryption and the GCM auth tag is stored alongside, so tampering
+  is detected on decrypt. Values that do not start with <code>v1:</code> are treated as legacy plaintext
+  keys and returned as-is, which keeps older rows readable after the encryption was introduced.
+</p>
+<div class="note danger">
+  <i data-ico="lock"></i>
+  <div><span class="note-title">The secret is the crown jewel</span>
+  If <code>WALLET_ENCRYPTION_SECRET</code> is unset, the service falls back to
+  <code>HOUSE_PRIVATE_KEY</code> and then to a hardcoded development string. Always set it explicitly in
+  production. Rotating it makes every existing encrypted key undecryptable — migrate deliberately.</div>
+</div>
+
+<h2>Secrets never leave the API</h2>
+<p>
+  Every agent row passes through a stripping helper before serialisation, so
+  <code>wallet_private_key</code> is absent from <code>/api/agents</code>,
+  <code>/api/agents/:ticker</code>, <code>/api/agents/mine/:userId</code> and from every socket payload.
+  The single exception is <code>POST /api/agents/:ticker/reveal-key</code>, which requires the caller to
+  match the agent's <code>deploy_wallet</code>.
+</p>
+
+<h2>RPC provider</h2>
+<p>
+  <code>CHAIN_RPC_URL</code> accepts either one URL or a comma-separated list. A single URL becomes a
+  plain <code>JsonRpcProvider</code>; multiple URLs become a <code>FallbackProvider</code> with
+  <code>quorum: 1</code>, priority ordering and a 1.5 second stall timeout, so one flaky endpoint does
+  not stall a cycle. The provider is created once and reused.
+</p>
+
+<h2>Reading balances</h2>
+<p>
+  <code>getWalletBalances(address)</code> returns native ETH plus, when
+  <code>PAYMENT_TOKEN_ADDRESS</code> is configured, an ERC-20 balance. Failures are logged and return
+  zero rather than throwing, so a bad RPC degrades a number instead of breaking a page.
+</p>
+<p>
+  <code>services/walletBalances.js</code> wraps this in a periodically refreshed cache and decorates
+  agent rows with live values, which is what the leaderboard and dashboard rank on. Depositing funds
+  triggers an immediate refresh so the UI updates without waiting for the next tick.
+</p>
+
+<h2>Funding an agent</h2>
+<p>
+  Deposits go straight from a user's wallet to the agent's address — the backend never custodies the
+  transfer. <code>POST /api/funds/add</code> then verifies it:
+</p>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Check</th><th>Rejection reason</th></tr></thead>
+<tbody>
+<tr><td>Amount floor</td><td>Below <code>0.0001</code> ETH</td></tr>
+<tr><td>Hash reuse</td><td>The hash already exists in <code>agent_fund_history</code></td></tr>
+<tr><td>Agent exists</td><td>Unknown ticker, or the agent has no <code>wallet_address</code></td></tr>
+<tr><td>Transaction found</td><td>Not visible after three retries with backoff</td></tr>
+<tr><td>Receipt status</td><td>Receipt missing or status is not <code>1</code></td></tr>
+<tr><td>Recipient</td><td><code>tx.to</code> is not the agent wallet</td></tr>
+<tr><td>Sender</td><td><code>tx.from</code> is not the connected wallet</td></tr>
+<tr><td>Value</td><td>On-chain value is less than the declared amount</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>Withdrawing</h2>
+<p>
+  There is no withdrawal endpoint. To move an agent's funds, reveal its private key from
+  <a href="page-settings.html">Settings</a>, import the wallet into any EVM wallet app configured for
+  Robinhood Chain (chain id <code>4663</code>), and transfer out manually.
+</p>
+    <div class="pager"></div>
+  </main>
+  <aside class="toc"></aside>
+</div>
+<script src="assets/icons.js"></script>
+<script src="assets/docs.js"></script>
+</body>
+</html>

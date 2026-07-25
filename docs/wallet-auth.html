@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wallet-only auth · Agex Docs</title>
+<meta name="description" content="How Agex authenticates users with a connected wallet address instead of accounts, passwords or admin roles.">
+<link rel="icon" type="image/webp" href="assets/agex.webp">
+<link rel="apple-touch-icon" href="assets/agex.webp">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/docs.css">
+</head>
+<body>
+<header class="hdr"></header>
+<div class="side-backdrop"></div>
+<div class="shell">
+  <aside class="side"></aside>
+  <main class="content">
+    <div class="crumbs">
+      <a href="index.html">Docs</a>
+      <i data-ico="chevron-right" data-size="13"></i>
+      <span>Start here</span>
+    </div>
+    <h1>Wallet-only auth</h1>
+    <p class="lede">There are no passwords, no email confirmations and no admin accounts. The lowercased address of the wallet you connect is your user id everywhere in the system.</p>
+<h2>The model</h2>
+<p>
+  A connected wallet is an identity claim, and Agex treats it as the whole account system. When
+  RainbowKit reports a connection, the frontend calls <code>POST /api/user/profile</code> with the
+  address. The backend upserts a row in <code>profiles</code> whose primary key <em>is</em> that
+  lowercased address, and returns the profile. Disconnecting the wallet signs you out.
+</p>
+<div class="note">
+  <i data-ico="info"></i>
+  <div><span class="note-title">Every identifier is lowercased</span>
+  Addresses are normalised with <code>toLowerCase()</code> on write and on lookup. Mixed-case
+  checksummed addresses passed to an endpoint still resolve to the same profile.</div>
+</div>
+
+<h2>Sign-in flow</h2>
+<ol class="steps">
+  <li><h3>Connect</h3><p><code>WalletProvider.jsx</code> configures wagmi and RainbowKit with the Robinhood Chain and your <code>VITE_WALLETCONNECT_PROJECT_ID</code>.</p></li>
+  <li><h3>Sync profile</h3><p><code>AuthContext.jsx</code> watches the connected address and posts it to <code>/api/user/profile</code>.</p></li>
+  <li><h3>Hydrate</h3><p>The response — id, username, avatar, wallet — is held in React context and consumed by Profile, Settings and Register.</p></li>
+  <li><h3>Disconnect</h3><p>Clearing the wallet clears the context. Nothing is persisted client-side beyond wagmi's own connection state.</p></li>
+</ol>
+
+<h2>What a profile stores</h2>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Column</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>id</code></td><td>Lowercased wallet address. Primary key and the value every other table references as <code>user_id</code>.</td></tr>
+<tr><td><code>wallet_address</code></td><td>The same address, kept as a readable field.</td></tr>
+<tr><td><code>username</code></td><td>Optional display name; editable from <a href="page-profile.html">Profile</a>.</td></tr>
+<tr><td><code>avatar_url</code></td><td>Optional profile image.</td></tr>
+<tr><td><code>role</code></td><td>Always <code>user</code>. The column survives for schema compatibility but nothing branches on it.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>Ownership of an agent</h2>
+<p>
+  Agents record their deployer on <code>deploy_wallet</code>. A legacy <code>created_by</code> UUID
+  column is still written when a caller passes a UUID, but wallet deployments always use
+  <code>deploy_wallet</code>. Ownership decides three things:
+</p>
+<ul>
+  <li><code>GET /api/agents/mine/:userId</code> returns only agents whose <code>deploy_wallet</code> matches.</li>
+  <li><code>PUT /api/agents/:ticker</code> rejects edits from a wallet that does not own the agent.</li>
+  <li><code>POST /api/agents/:ticker/reveal-key</code> only decrypts the private key for the owner.</li>
+</ul>
+
+<h2>What was removed</h2>
+<p>
+  Earlier versions of the codebase had an admin role, an agent approval queue and per-agent status
+  values such as <code>pending_approval</code>, <code>suspended</code> and <code>bankrupt</code>. All of
+  it is gone: there is no admin router, no <code>ADMIN_WALLETS</code> environment variable, no approval
+  gate before an agent goes live, and no status filtering anywhere in the trading engines or the UI.
+</p>
+<div class="note warn">
+  <i data-ico="shield-alert"></i>
+  <div><span class="note-title">Threat model</span>
+  Ownership checks compare a supplied address to a stored one — they do not verify a signature. Anyone
+  who can call the API directly can claim to be any address. For a public deployment, add a
+  sign-in-with-Ethereum challenge in front of the mutating endpoints and the key reveal.</div>
+</div>
+    <div class="pager"></div>
+  </main>
+  <aside class="toc"></aside>
+</div>
+<script src="assets/icons.js"></script>
+<script src="assets/docs.js"></script>
+</body>
+</html>

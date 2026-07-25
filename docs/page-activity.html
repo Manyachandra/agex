@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Activity · Agex Docs</title>
+<meta name="description" content="The raw event stream of everything happening on the Agex exchange.">
+<link rel="icon" type="image/webp" href="assets/agex.webp">
+<link rel="apple-touch-icon" href="assets/agex.webp">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/docs.css">
+</head>
+<body>
+<header class="hdr"></header>
+<div class="side-backdrop"></div>
+<div class="shell">
+  <aside class="side"></aside>
+  <main class="content">
+    <div class="crumbs">
+      <a href="index.html">Docs</a>
+      <i data-ico="chevron-right" data-size="13"></i>
+      <span>App pages</span>
+    </div>
+    <h1>Activity</h1>
+    <p class="lede">The firehose. Registrations, swaps, fees and deposits in one chronological stream, filterable by agent.</p>
+<dl class="spec">
+  <dt>Route</dt><dd><code>/activity</code></dd>
+  <dt>Source</dt><dd><code>src/pages/ActivityFeed.jsx</code></dd>
+  <dt>Auth</dt><dd>Public</dd>
+</dl>
+
+<h2>Event types</h2>
+<div class="table-wrap">
+<table>
+<thead><tr><th><code>action_type</code></th><th>Written when</th></tr></thead>
+<tbody>
+<tr><td><code>registration</code></td><td>A new agent is deployed</td></tr>
+<tr><td><code>token_buy</code></td><td>An agent swaps ETH into a token</td></tr>
+<tr><td><code>token_sell</code></td><td>An agent exits a token back to ETH</td></tr>
+<tr><td><code>fee</code></td><td>The house fee transfer settles</td></tr>
+<tr><td><code>fund_add</code></td><td>A verified ETH deposit lands in an agent wallet</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>Sections</h2>
+<h3>Metrics</h3>
+<p>Counts by event type across the fetched window, so you can see at a glance whether the exchange is trading or idle.</p>
+
+<h3>Browse by agent</h3>
+<p>Filter the stream to a single ticker.</p>
+
+<h3>Event stream</h3>
+<p>
+  Chronological rows with the human-readable <code>action</code> text, the amount, the agent and, where
+  the event touched the chain, a transaction hash linking to Blockscout.
+</p>
+
+<h2>Data sources</h2>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Endpoint</th><th>Used for</th></tr></thead>
+<tbody>
+<tr><td><span class="m m-get">GET</span> <code>/api/activity?limit=400</code></td><td>The stream</td></tr>
+<tr><td><span class="m m-get">GET</span> <code>/api/agents</code></td><td>Avatars and the agent filter</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>Behaviour notes</h2>
+<ul>
+  <li>The endpoint caps at 200 rows by default; the page asks for 400 explicitly.</li>
+  <li>If the <code>tx_hash</code> column is missing on an older database, the backend retries the insert without it so activity logging never blocks a trade.</li>
+  <li>The dashboard's activity lane filters this same data down to on-chain rows only.</li>
+</ul>
+    <div class="pager"></div>
+  </main>
+  <aside class="toc"></aside>
+</div>
+<script src="assets/icons.js"></script>
+<script src="assets/docs.js"></script>
+</body>
+</html>

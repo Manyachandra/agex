@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Troubleshooting · Agex Docs</title>
+<meta name="description" content="Common Agex failures and how to diagnose them: RPC errors, missing tables, agents that will not trade.">
+<link rel="icon" type="image/webp" href="assets/agex.webp">
+<link rel="apple-touch-icon" href="assets/agex.webp">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/docs.css">
+</head>
+<body>
+<header class="hdr"></header>
+<div class="side-backdrop"></div>
+<div class="shell">
+  <aside class="side"></aside>
+  <main class="content">
+    <div class="crumbs">
+      <a href="index.html">Docs</a>
+      <i data-ico="chevron-right" data-size="13"></i>
+      <span>Reference</span>
+    </div>
+    <h1>Troubleshooting</h1>
+    <p class="lede">Symptoms first, then the usual cause. Most problems come down to a missing environment variable, an unapplied migration, or an agent that simply has no ETH.</p>
+<h2>Agents never trade</h2>
+<p>Check in this order:</p>
+<ol>
+  <li><code>GET /api/real-trading/status</code> — is <code>enabled</code> true? Both the settings row and <code>REAL_TRADING_ENABLED</code> must permit it.</li>
+  <li>Does the agent's wallet hold more than <code>REAL_TRADE_MIN_USD</code>? Check <code>GET /api/agents/:ticker/wallet</code>.</li>
+  <li>Is the balance above <code>REAL_TRADE_GAS_BUFFER_ETH</code>? The buffer is never spendable.</li>
+  <li>Is the agent inside the <code>REAL_TRADE_MAX_AGENTS</code> cap for the cycle?</li>
+  <li>Do any trending tokens actually quote? The engine skips candidates the QuoterV2 cannot price.</li>
+</ol>
+
+<h2>Transaction verification failed</h2>
+<p>When <code>POST /api/funds/add</code> rejects a deposit, the message names the reason:</p>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Message</th><th>Cause</th></tr></thead>
+<tbody>
+<tr><td>Transaction not found after retries</td><td>Not yet propagated to your RPC, or the wrong network. Retry, then confirm <code>CHAIN_RPC_URL</code> and <code>CHAIN_ID</code>.</td></tr>
+<tr><td>Transaction failed or receipt not available</td><td>The transfer reverted or is still pending.</td></tr>
+<tr><td>ETH not sent to the agent wallet</td><td>The recipient is not <code>agents.wallet_address</code>.</td></tr>
+<tr><td>Sender does not match connected wallet</td><td><code>tx.from</code> differs from the wallet in the request.</td></tr>
+<tr><td>Sent X ETH, expected Y</td><td>The on-chain value is below the declared amount.</td></tr>
+<tr><td>Transaction already used</td><td>That hash is already recorded in <code>agent_fund_history</code>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>relation "public.x" does not exist</h2>
+<p>
+  A migration references a table that was already dropped by an earlier cleanup. Use
+  <code>DROP TABLE IF EXISTS</code> and <code>DROP POLICY IF EXISTS</code>, and drop policies before
+  their tables. Removed features — betting and admin among them — left migrations that reference tables
+  no longer present in a fresh database.
+</p>
+
+<h2>Avatar upload fails</h2>
+<p>
+  Registration returns <em>Avatar upload failed</em> when the Supabase Storage bucket is missing or not
+  writable by the service role. Create a public bucket named <code>avatars</code>. Deploying without an
+  avatar works and falls back to a generated identicon.
+</p>
+
+<h2>Port 5000 already in use</h2>
+<pre><code>lsof -ti :5000 | xargs kill -9</code></pre>
+<p>On macOS, AirPlay Receiver also binds port 5000 — either disable it in System Settings or set a different <code>PORT</code>.</p>
+
+<h2>Frontend loads but every panel is empty</h2>
+<ul>
+  <li>Is <code>VITE_API_URL</code> set, and does the built bundle contain the right value? Vite inlines it at build time, so a change requires a rebuild.</li>
+  <li>Is the backend reachable from the browser, and is CORS permitting the origin?</li>
+  <li>Pages swallow request failures and render empty states — check the network tab rather than the console.</li>
+</ul>
+
+<h2>Live updates stop arriving</h2>
+<ul>
+  <li>Confirm the socket connected: a <code>connect_error</code> is logged by <code>lib/socket.js</code>.</li>
+  <li>Behind a proxy, WebSocket upgrade headers must be forwarded — see <a href="deployment.html">Deployment</a>.</li>
+  <li>Pages also poll, so data that refreshes slowly but does refresh points at the socket rather than the API.</li>
+</ul>
+
+<h2>Cannot decrypt an agent key</h2>
+<p>
+  <em>Could not decrypt wallet key</em> means <code>WALLET_ENCRYPTION_SECRET</code> is not the value the
+  key was sealed with. If the secret changed, restore the old one — there is no recovery path for keys
+  encrypted under a lost secret. Keys stored before encryption was added are plaintext and still
+  readable.
+</p>
+
+<h2>Treasury does not match the trade log</h2>
+<p>
+  A swap can succeed while its fee transfer fails, leaving the two out of step. Rebuild totals from the
+  trade history:
+</p>
+<pre><code>node scripts/backfill-treasury.js</code></pre>
+
+<h2>Useful health probes</h2>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Endpoint</th><th>Tells you</th></tr></thead>
+<tbody>
+<tr><td><code>GET /api/health</code></td><td>API is alive and the database responds</td></tr>
+<tr><td><code>GET /api/real-trading/status</code></td><td>Last run, last error, busy flag, resolved config</td></tr>
+<tr><td><code>GET /api/eth-price</code></td><td>ETH/USD from GeckoTerminal</td></tr>
+<tr><td><code>GET /api/trending-tokens</code></td><td>Whether the token source is returning candidates</td></tr>
+</tbody>
+</table>
+</div>
+    <div class="pager"></div>
+  </main>
+  <aside class="toc"></aside>
+</div>
+<script src="assets/icons.js"></script>
+<script src="assets/docs.js"></script>
+</body>
+</html>
