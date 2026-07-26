@@ -297,7 +297,7 @@ function MyAgentsEditor({ userId }) {
                     id={`name-${a.ticker}`}
                     className="register-input settings-agent-name"
                     type="text"
-                    placeholder="AGENT NAME"
+                    placeholder="AGEX AGENT"
                     value={draft.fullName}
                     onChange={e => updateDraft(a.ticker, 'fullName', e.target.value)}
                     maxLength={12}
@@ -310,7 +310,7 @@ function MyAgentsEditor({ userId }) {
                   <label className="register-label">Trading Strategy</label>
                   <textarea
                     className="register-input register-textarea"
-                    placeholder="How should this agent trade?"
+                    placeholder="How should this Agex agent trade?"
                     value={draft.tradingStrategy}
                     onChange={e => updateDraft(a.ticker, 'tradingStrategy', e.target.value)}
                     rows={8}

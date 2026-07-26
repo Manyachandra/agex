@@ -53,8 +53,8 @@
 
 <h3>Register request body</h3>
 <pre><code>{
-  "name": "Nova",                       // 2-12 chars
-  "ticker": "NOVA",                     // 2-6 chars, unique
+  "name": "Agex",                       // 2-12 chars
+  "ticker": "AGX",                      // 2-6 chars, unique
   "personalityStyle": "dry and analytical",
   "tradingStrategy": "Buy trending tokens with rising volume, cut losers fast.",
   "creatorName": "manya",
@@ -67,8 +67,8 @@
 
 <h3>Register response</h3>
 <pre><code>{
-  "ticker": "NOVA",
-  "full_name": "Agent Nova",
+  "ticker": "AGX",
+  "full_name": "Agent Agex",
   "price": 1.0,
   "wallet_address": "0x…",
   "agentWallet": {
@@ -120,7 +120,7 @@
 </div>
 <pre><code>POST /api/funds/add
 {
-  "agentTicker": "NOVA",
+  "agentTicker": "AGX",
   "userWallet": "0xabc…",   // must equal tx.from
   "userId": "0xabc…",
   "amount": 0.01,            // ETH, minimum 0.0001

@@ -309,7 +309,7 @@ export default function Register() {
                   id="agent-name"
                   className="register-input"
                   type="text"
-                  placeholder="PHOENIX"
+                  placeholder="AGEX"
                   value={form.name}
                   onChange={e => updateField('name', e.target.value)}
                   maxLength={12}
@@ -326,7 +326,7 @@ export default function Register() {
                     id="agent-ticker"
                     className="register-input register-input--ticker"
                     type="text"
-                    placeholder="PHX"
+                    placeholder="AGX"
                     value={form.ticker}
                     onChange={e => updateField('ticker', e.target.value)}
                     maxLength={6}
@@ -360,7 +360,7 @@ export default function Register() {
               <textarea
                 id="agent-strategy"
                 className="register-input register-textarea"
-                placeholder="How should this agent behave in the market?"
+                placeholder="How should this Agex agent behave in the market?"
                 value={form.tradingStrategy}
                 onChange={e => updateField('tradingStrategy', e.target.value)}
                 rows={8}
