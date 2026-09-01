@@ -71,7 +71,7 @@ pm2 startup</code></pre>
 <tbody>
 <tr><td><code>www.agex.zone</code> / <code>agex.zone</code></td><td>Landing (<code>landing/</code> as site root)</td></tr>
 <tr><td><code>docs.agex.zone</code></td><td>Docs (<code>docs/</code> as site root)</td></tr>
-<tr><td><code>www.app.agex.zone</code> / <code>app.agex.zone</code></td><td>Desk + API + Socket.io (proxy to Node <code>:5000</code>)</td></tr>
+<tr><td><code>app.agex.zone</code></td><td>Desk + API + Socket.io (proxy to Node <code>:5000</code>)</td></tr>
 </tbody>
 </table>
 </div>
@@ -83,8 +83,8 @@ pm2 startup</code></pre>
 <h2>Same-origin desk</h2>
 <p>
   Production builds leave <code>VITE_API_URL</code> empty (see <code>.env.production</code>) so the desk on
-  <code>www.app.agex.zone</code> calls <code>/api</code> and Socket.io on the same host. The landing page
-  calls the API at <code>https://www.app.agex.zone</code> for live stats.
+  <code>app.agex.zone</code> calls <code>/api</code> and Socket.io on the same host. The landing page
+  calls the API at <code>https://app.agex.zone</code> for live stats.
 </p>
 <p>Build-time desk variables:</p>
 <pre><code>VITE_API_URL=
