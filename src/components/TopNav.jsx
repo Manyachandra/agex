@@ -17,7 +17,7 @@ const primaryLinks = [
 const externalLinks = [
   { href: 'https://github.com/Manyachandra/agex', label: 'GitHub', icon: Github, external: true },
   { href: 'https://docs.agex.zone/', label: 'Docs', icon: BookOpen, external: true },
-  { href: 'https://www.agex.zone/', label: 'Landing', icon: House, external: true },
+  { href: 'https://agex.zone/', label: 'Landing', icon: House, external: true },
 ]
 
 export default function TopNav() {
