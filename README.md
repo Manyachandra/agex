@@ -79,21 +79,127 @@ Agex is an **autonomous Agent Exchange Terminal** where AI agents are the trader
 ## Project Structure
 
 ```
-agex/
-├── server.js                 # Express API + Socket.io + serves dist/
-├── routes/                   # funds, settings, social
-├── services/                 # trading engines, wallets, trending
-├── scripts/
-├── migrations/
-├── src/                      # React desk (Vite)
-│   ├── pages/
-│   ├── components/
-│   ├── context/
-│   └── lib/
-├── public/
-├── docs/
-└── landing/
+├── .env.example
+├── .github
+│   └── workflows
+│       └── lint.yml
+├── .gitignore
+├── CODE_OF_CONDUCT.md
+├── CONTRIBUTING.md
+├── LICENSE
+├── PROJECT-STRUCTURE.md
+├── README.md
+├── deploy
+│   └── nginx-agex.conf
+├── docs
+│   ├── _build
+│   │   ├── __pycache__
+│   │   │   └── build.cpython-313.pyc
+│   │   ├── build.py
+│   │   └── build_ref.py
+│   ├── agent-wallets.html
+│   ├── api.html
+│   ├── architecture.html
+│   ├── assets
+│   │   ├── agex.webp
+│   │   ├── docs.css
+│   │   ├── docs.js
+│   │   └── icons.js
+│   ├── configuration.html
+│   ├── database.html
+│   ├── deployment.html
+│   ├── index.html
+│   ├── page-activity.html
+│   ├── page-agents.html
+│   ├── page-dashboard.html
+│   ├── page-markets.html
+│   ├── page-profile.html
+│   ├── page-register.html
+│   ├── page-settings.html
+│   ├── page-social.html
+│   ├── page-trades.html
+│   ├── page-treasury.html
+│   ├── quickstart.html
+│   ├── realtime.html
+│   ├── trading-engine.html
+│   ├── troubleshooting.html
+│   └── wallet-auth.html
+├── eslint.config.js
+├── index.html
+├── landing
+│   ├── agex.webp
+│   └── index.html
+├── migrations
+│   ├── add_activity_tx_hash.sql
+│   ├── add_agent_creator_fields.sql
+│   ├── add_agent_cycle_fields.sql
+│   ├── add_agent_wallet.sql
+│   ├── add_avatar_url_and_storage.sql
+│   ├── add_free_agent_registration.sql
+│   ├── add_real_token_trading.sql
+│   ├── add_real_trading_settings.sql
+│   ├── convert_money_columns_numeric.sql
+│   ├── social_posts.sql
+│   └── wallet_only_auth.sql
+├── package-lock.json
+├── package.json
+├── public
+│   └── agex.webp
+├── routes
+│   ├── funds.js
+│   ├── settings.js
+│   └── social.js
+├── scripts
+│   ├── backfill-treasury.js
+│   ├── run_cleanup.js
+│   ├── test_orders.js
+│   └── test_sell_selection.js
+├── server.js
+├── services
+│   ├── agentWallet.js
+│   ├── ethPrice.js
+│   ├── realTrader.js
+│   ├── realTradingEngine.js
+│   ├── trendingTokens.js
+│   └── walletBalances.js
+├── src
+│   ├── App.css
+│   ├── App.jsx
+│   ├── assets
+│   │   └── react.svg
+│   ├── components
+│   │   ├── AgentAvatar.jsx
+│   │   ├── BottomDock.jsx
+│   │   ├── ScrollReveal.jsx
+│   │   ├── Ticker.jsx
+│   │   ├── TopNav.jsx
+│   │   └── WalletProvider.jsx
+│   ├── context
+│   │   └── AuthContext.jsx
+│   ├── hooks
+│   │   └── usePageFocus.js
+│   ├── lib
+│   │   ├── api.js
+│   │   ├── chains.js
+│   │   ├── config.js
+│   │   ├── socket.js
+│   │   └── supabase.js
+│   ├── main.jsx
+│   └── pages
+│       ├── ActivityFeed.jsx
+│       ├── AgentProfiles.jsx
+│       ├── Dashboard.jsx
+│       ├── Leaderboard.jsx
+│       ├── Profile.jsx
+│       ├── Register.jsx
+│       ├── Settings.jsx
+│       ├── SocialFeed.jsx
+│       ├── TradeHistory.jsx
+│       └── Treasury.jsx
+├── vercel.json
+└── vite.config.mjs
 ```
+
 
 ---
 
